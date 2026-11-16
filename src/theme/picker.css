@@ -1,0 +1,314 @@
+/* Battle theme screen. Sizes are px in the 1280x720 design space (mock 4). */
+.tp-root,
+.tp-root * {
+  box-sizing: border-box;
+}
+.tp-root {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  color: var(--ink, #1b1210);
+  font-family: var(--font-type, 'Special Elite', 'Courier New', monospace);
+  background-color: #2f6b52;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.tp-header {
+  position: absolute;
+  left: 40px;
+  top: 20px;
+  width: 1200px;
+  height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border: 4px solid #fff;
+  background: #c9a46a;
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 3px, transparent 3px 7px);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.3);
+  transform: rotate(0.4deg);
+}
+.tp-header .tt-tiles {
+  transform: scale(0.82);
+  transform-origin: left center;
+}
+.tp-sub {
+  padding: 3px 14px 0;
+  background: var(--paper, #fffdf5);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.tp-panel {
+  position: absolute;
+  top: 108px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  background: var(--paper, #fffdf5);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.3);
+}
+.tp-left {
+  left: 40px;
+  width: 580px;
+  transform: rotate(-0.4deg);
+}
+.tp-right {
+  left: 652px;
+  width: 588px;
+  gap: 8px;
+  transform: rotate(0.4deg);
+}
+.tp-dragging {
+  outline: 4px dashed var(--yellow, #ffe14d);
+  outline-offset: 4px;
+}
+
+/* ---------- list ---------- */
+.tp-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-height: 330px;
+  overflow-y: auto;
+  position: relative;
+  padding: 2px 8px 6px 2px;
+}
+.tp-list .tt-strip {
+  align-self: flex-start;
+}
+.tp-strip-gap {
+  margin-top: 6px;
+}
+.tp-empty {
+  font-size: 16px;
+  padding: 2px 4px;
+}
+.tp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: none;
+  min-height: 52px;
+  padding: 3px 10px 0 14px;
+  background: #fff;
+  border: 3px solid var(--ink, #1b1210);
+  cursor: pointer;
+}
+.tp-row[data-selected='true'] {
+  background: var(--yellow, #ffe14d);
+}
+.tp-row:focus-visible {
+  outline: 3px solid var(--ink, #1b1210);
+  outline-offset: 3px;
+}
+.tp-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.tp-row-title {
+  font-size: 18px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tp-row-credit {
+  font-size: 13px;
+  opacity: 0.75;
+}
+.tp-row-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.tp-row-tempo {
+  font-size: 15px;
+  white-space: nowrap;
+}
+.tp-selected {
+  padding: 1px 8px 0;
+  background: var(--ink, #1b1210);
+  color: #fff;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  line-height: 1.6;
+}
+.tp-row .tt-btn {
+  --px: 12px;
+  --fs: 14px;
+  --vis: 34px;
+}
+
+/* ---------- upload ---------- */
+.tp-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 6px 10px;
+  border: 3px dashed var(--ink, #1b1210);
+  background: #fff;
+}
+.tp-drop-text {
+  font-size: 18px;
+  line-height: 1.2;
+}
+.tp-limits {
+  font-size: 14px;
+  line-height: 1.2;
+}
+.tp-privacy {
+  align-self: flex-start;
+  font-size: 17px;
+  max-width: 520px;
+}
+
+/* ---------- set the beat ---------- */
+.tp-right-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tp-right-title {
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tp-wave {
+  display: block;
+  width: 100%;
+  height: 68px;
+  flex: none;
+  background: #fff;
+  border: 3px solid var(--ink, #1b1210);
+}
+.tp-ctl {
+  display: flex;
+}
+.tp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.tp-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tp-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+.tp-label {
+  font-size: 14px;
+  letter-spacing: 0.1em;
+}
+.tp-big {
+  min-width: 78px;
+  text-align: center;
+  font-family: var(--font-display, Bungee, Impact, sans-serif);
+  font-size: 34px;
+  line-height: 1;
+}
+.tp-big-small {
+  font-size: 28px;
+  min-width: 90px;
+}
+.tp-unit {
+  font-size: 16px;
+}
+.tp-nudge {
+  min-width: 48px;
+  height: 44px;
+  padding: 2px 6px 0;
+  background: #fff;
+  border: 3px solid var(--ink, #1b1210);
+  border-radius: 0;
+  font-family: var(--font-type, 'Special Elite', 'Courier New', monospace);
+  font-size: 16px;
+  color: var(--ink, #1b1210);
+  cursor: pointer;
+}
+.tp-nudge:active:not(:disabled) {
+  background: var(--yellow, #ffe14d);
+}
+.tp-nudge:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tp-nudge:focus-visible {
+  outline: 3px solid var(--ink, #1b1210);
+  outline-offset: 2px;
+}
+.tp-readonly {
+  font-size: 15px;
+}
+.tp-tapbox {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 12px;
+  background: #fff;
+  border: 3px solid var(--ink, #1b1210);
+}
+.tp-dots {
+  display: flex;
+  gap: 8px;
+}
+.tp-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 3px solid var(--ink, #1b1210);
+}
+.tp-dot-on {
+  background: var(--red, #d42a40);
+}
+.tp-tap-hint {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+.tp-tapresult {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--tape-note, rgba(244, 228, 170, 0.95));
+  font-size: 15px;
+  line-height: 1.3;
+}
+.tp-tapresult[hidden],
+.tp-message[hidden],
+.tp-readonly[hidden] {
+  display: none;
+}
+.tp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.tp-footer .tt-btn[hidden] {
+  display: none;
+}
