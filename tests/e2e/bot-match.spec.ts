@@ -146,3 +146,59 @@ test('debug overlay shows the beat and edits tunables', async ({ page }) => {
   await input.fill('17');
   expect(await page.evaluate(() => window.__ttt?.app.tunables.missDamage)).toBe(17);
 });
+
+interface DuelProbe {
+  phase: string;
+  active: boolean;
+  slot: number;
+  strikes: number;
+  resolved: number;
+  pending: number;
+}
+
+function probe(page: Page): Promise<DuelProbe | null> {
+  return page.evaluate(() => {
+    const v = window.__ttt?.session?.view();
+    if (!v) return null;
+    return {
+      phase: v.phase,
+      active: v.localActive,
+      slot: v.slotPosition,
+      strikes: v.strikes.length,
+      resolved: v.targets.filter((t) => t.result !== null).length,
+      pending: v.targets.filter((t) => t.result === null && t.timeToHit > 0).length,
+    };
+  });
+}
+
+test('final design: title and duel screenshots', async ({ page }) => {
+  await page.goto('/?debug=1&res=1');
+  await expect(page.getByTestId('title')).toBeVisible();
+  await page.getByTestId('debug-toggle').click();
+  await page.screenshot({ path: 'test-results/screens/final-title.png' });
+
+  await page.goto('/?debug=1&bot=1&autoplay=1&bpm=100&seed=3&botAccuracy=0.9&res=1');
+  await startBot(page);
+  // The debug panel is collapsible so the stage can be photographed on its own.
+  await page.getByTestId('debug-toggle').click();
+
+  // Reaching for the middle of the stage: the local sword tip follows the pointer.
+  await page.mouse.move(820, 300);
+  let attack = false;
+  let defend = false;
+  const deadline = Date.now() + 60_000;
+  while (!(attack && defend)) {
+    if (Date.now() > deadline) throw new Error('never saw both duel moments');
+    const p = await probe(page);
+    if (p && !attack && p.phase === 'attack' && p.active && p.strikes >= 3 && p.slot >= 5 && p.slot <= 6.5) {
+      attack = true;
+      await page.screenshot({ path: 'test-results/screens/final-duel-attack.png' });
+    } else if (p && !defend && p.phase === 'defend' && p.active && p.resolved >= 1 && p.pending >= 2) {
+      defend = true;
+      await page.screenshot({ path: 'test-results/screens/final-duel-defend.png' });
+    }
+    await page.waitForTimeout(25);
+  }
+  // Both HUD parts were readable while the duel ran.
+  await expect(page.getByTestId('banner')).toBeVisible();
+});

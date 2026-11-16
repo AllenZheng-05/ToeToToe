@@ -213,7 +213,18 @@ body {
   box-shadow: 6px 8px 0 rgba(0, 0, 0, 0.35);
 }
 
-/* ------------------------------------------------------------ duel HUD */
+/* ------------------------------------------------------------ duel HUD (built from the UI kit) */
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--paper);
+  font-size: 28px;
+  letter-spacing: 0.06em;
+}
 
 .hud {
   position: absolute;
@@ -221,230 +232,118 @@ body {
   pointer-events: none;
 }
 
-.player-panel {
+/* Plates sit on the ledge, inset so the curtain hems do not cover them. */
+.hud-plate {
   position: absolute;
-  top: 610px;
-  width: 150px;
+  top: 609px;
 }
 
-.player-panel.p0 {
-  left: 44px;
+.hud-plate-left {
+  left: 186px;
 }
 
-.player-panel.p1 {
-  left: 1086px;
+.hud-plate-right {
+  right: 186px;
 }
 
-.player-name {
-  margin-bottom: 4px;
-  padding: 0 6px;
-  font-size: 17px;
-  font-weight: bold;
-  line-height: 1.3;
-  color: var(--paper);
-  background: var(--ink);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.player-panel.local .player-name {
-  background: var(--blue);
-}
-
-.bar {
-  position: relative;
-  height: 22px;
-  margin-bottom: 4px;
-  box-sizing: border-box;
-  border: 3px solid var(--ink);
-  background: var(--paper);
-  overflow: hidden;
-}
-
-.bar-fill {
+.hud-act-box {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
-  width: 100%;
-}
-
-.bar.health .bar-fill {
-  background: var(--red);
-}
-
-.bar.stamina .bar-fill {
-  background: var(--blue);
-}
-
-.bar-text {
-  position: relative;
-  font-size: 13px;
-  font-weight: bold;
-  line-height: 16px;
-  text-align: center;
-  color: var(--paper);
-  text-shadow:
-    1px 1px 0 var(--ink),
-    -1px -1px 0 var(--ink),
-    1px -1px 0 var(--ink),
-    -1px 1px 0 var(--ink);
-}
-
-.winded-tag {
-  position: absolute;
-  top: -30px;
-  left: 0;
-  padding: 2px 10px;
-  font-size: 16px;
-  font-weight: bold;
-  background: var(--yellow);
-  border: 3px solid var(--ink);
-  transform: rotate(-3deg);
-}
-
-.winded-tag[hidden] {
-  display: none;
-}
-
-.banner {
-  position: absolute;
-  left: 0;
+  top: 146px;
   width: 1280px;
-  top: 56px;
-  text-align: center;
-  font-size: 72px;
-  font-weight: bold;
-  line-height: 1;
-  color: var(--paper);
-  text-shadow:
-    3px 3px 0 var(--ink),
-    -3px -3px 0 var(--ink),
-    3px -3px 0 var(--ink),
-    -3px 3px 0 var(--ink),
-    0 5px 0 var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
-.banner.attack {
-  color: var(--red);
+.hud-act-box {
+  transition: opacity 0.15s linear;
 }
 
-.banner.parry {
-  color: var(--yellow);
+.hud-act-box.dim {
+  opacity: 0.3;
 }
 
-.banner.watch {
-  color: var(--paper);
-  font-size: 56px;
+.hud-plate .tt-strip {
+  text-transform: uppercase;
 }
 
-.act-box {
-  position: absolute;
-  left: 0;
-  width: 1280px;
-  top: 10px;
-  text-align: center;
-  font-size: 18px;
-  font-weight: bold;
-  color: var(--paper);
+.hud-act-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.act-counter,
-.act-wins {
-  display: inline-block;
-  margin: 0 6px;
-  padding: 1px 10px;
-  color: var(--ink);
-  background: var(--paper);
+.hud-act-wins {
+  font-size: 14px;
 }
 
-.phrase-dots {
-  position: absolute;
-  left: 440px;
-  width: 400px;
-  top: 624px;
+.hud-banner {
   display: flex;
   justify-content: center;
-  gap: 12px;
 }
 
-.dot {
-  width: 16px;
-  height: 16px;
-  box-sizing: border-box;
-  border: 3px solid var(--ink);
-  border-radius: 50%;
-  background: var(--paper);
+.hud-dots {
+  position: absolute;
+  left: 0;
+  top: 613px;
+  width: 1280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
-.dot.beat {
-  width: 20px;
-  height: 20px;
-  margin-top: -2px;
+.hud-dots-caption {
+  font-size: 14px;
 }
 
-.dot.lit {
-  background: var(--yellow);
-  transform: scale(1.3);
-}
-
-.grade-pop {
+.hud-grade-slot {
   position: absolute;
   transform: translate(-50%, -50%);
-  font-size: 34px;
-  font-weight: bold;
-  color: var(--paper);
-  text-shadow:
-    2px 2px 0 var(--ink),
-    -2px -2px 0 var(--ink),
-    2px -2px 0 var(--ink),
-    -2px 2px 0 var(--ink);
-  animation: pop-rise 0.8s ease-out forwards;
 }
 
-.grade-pop.bravo {
-  color: var(--yellow);
+.hud-note-slot {
+  position: absolute;
+  left: 0;
+  top: 262px;
+  width: 1280px;
+  display: flex;
+  justify-content: center;
+  animation: hud-fade 1.6s ease-out forwards;
 }
 
-.grade-pop.good {
-  color: var(--parried);
+.hud-heckle-slot {
+  position: absolute;
+  left: 60px;
+  top: 150px;
+  width: 176px;
+  animation: hud-fade 5s ease-out forwards;
 }
 
-.grade-pop.miss {
+.hud-streak-slot {
+  position: absolute;
+  left: 1004px;
+  top: 250px;
+  animation: hud-fade 2.8s ease-out forwards;
+}
+
+.hud-streak {
+  padding: 12px 22px 8px 22px;
+  font-size: 28px;
+  line-height: 1.05;
+  text-align: center;
+}
+
+.hud-streak-num {
+  font-size: 60px;
   color: var(--red);
 }
 
-@keyframes pop-rise {
-  0% {
-    opacity: 1;
-    margin-top: 0;
-  }
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    margin-top: -50px;
-  }
-}
-
-.hud-note {
-  position: absolute;
-  left: 50%;
-  top: 140px;
-  transform: translateX(-50%);
-  padding: 4px 16px;
-  font-size: 20px;
-  font-weight: bold;
-  background: var(--paper);
-  border: 3px solid var(--ink);
-  animation: note-fade 1.4s ease-out forwards;
-}
-
-@keyframes note-fade {
+@keyframes hud-fade {
   0%,
-  70% {
+  80% {
     opacity: 1;
   }
   100% {
@@ -454,14 +353,15 @@ body {
 
 /* ------------------------------------------------------------ debug overlay */
 
+/* Top left, under the valance, clear of the player plates on the ledge. */
 .debug-overlay {
   position: fixed;
-  top: 0;
-  right: 0;
+  top: 21vh;
+  left: 0;
   z-index: 100;
   box-sizing: border-box;
-  width: 340px;
-  max-height: 100vh;
+  width: 300px;
+  max-height: 50vh;
   overflow-y: auto;
   padding: 8px;
   font-size: 12px;
@@ -469,6 +369,31 @@ body {
   color: #e8f5e8;
   background: rgba(10, 20, 15, 0.86);
   user-select: text;
+}
+
+.dbg-toggle {
+  display: block;
+  margin: 0 0 4px auto;
+  padding: 0 8px;
+  font: inherit;
+  color: inherit;
+  background: #12261c;
+  border: 1px solid #4f8a62;
+  cursor: pointer;
+}
+
+.debug-overlay.collapsed {
+  width: auto;
+  padding: 4px;
+  background: rgba(10, 20, 15, 0.6);
+}
+
+.debug-overlay.collapsed > :not(.dbg-toggle) {
+  display: none;
+}
+
+.debug-overlay.collapsed .dbg-toggle {
+  margin: 0;
 }
 
 .dbg-row {
@@ -508,9 +433,19 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .grade-pop,
-  .hud-note {
-    animation-duration: 0.01s;
-    animation-delay: 0.6s;
+  .hud-note-slot,
+  .hud-heckle-slot,
+  .hud-streak-slot {
+    animation-name: hud-fade-still;
+  }
+
+  @keyframes hud-fade-still {
+    0%,
+    90% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
   }
 }

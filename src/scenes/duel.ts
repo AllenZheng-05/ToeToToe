@@ -4,10 +4,13 @@ import { DuelSession, type SessionEvent } from '../core/session';
 import type { Unsubscribe } from '../core/types';
 import { attachPointerInput } from '../input/pointer';
 import { DuelRenderer } from '../stage/duelRenderer';
+import { loadPresetImages } from '../stage/art/puppetView';
 import { playRectOnScreen, playToDesign } from '../stage/layout';
+import { PRESETS } from '../puppet/presets';
 import { Hud } from '../ui/hud';
+import { decodeDrawing, loadSelectedPuppet } from '../workshop/selection';
 import { TitleScene } from './title';
-import type { MatchSetup, Scene } from './types';
+import type { MatchSetup, PuppetImagesSource, Scene } from './types';
 import { VictoryScene } from './victory';
 
 /** How long "Your friend left" stays up before returning to the title (UI only, not on the beat). */
@@ -23,6 +26,7 @@ export class DuelScene implements Scene {
   private over = false;
   private leaveTimer: number | null = null;
   private notice: HTMLElement | null = null;
+  private disposed = false;
 
   constructor(
     private readonly app: App,
@@ -50,7 +54,8 @@ export class DuelScene implements Scene {
     app.judgedOffsets.length = 0;
     setup.attach?.(session);
 
-    const renderer = new DuelRenderer(app.stage.root, app.tunables, setup.grid.bpm);
+    app.stage.setLook('duel');
+    const renderer = new DuelRenderer(app.stage, app.tunables, setup.grid.bpm);
     const hud = new Hud(app.overlay, app.tunables, setup.names);
     this.renderer = renderer;
     this.hud = hud;
@@ -61,11 +66,10 @@ export class DuelScene implements Scene {
         element: app.stage.host,
         clock: engine.clock,
         getPlayRect: () => playRectOnScreen(app.stage.fit),
-        onMove: (s) => {
-          const p = playToDesign(s.x, s.y);
-          renderer.setPointer(p);
-        },
+        // The sword tip follows the pointer; a lifted finger leaves it where it was (no move events then).
+        onMove: (s) => renderer.setPointer(playToDesign(s.x, s.y), s.touch),
         onDown: (c) => {
+          if (c.touch) renderer.setPointer(playToDesign(c.x, c.y), true);
           if (c.inside) session.pointerDown(c.x, c.y, c.time, c.touch);
         },
       }),
@@ -74,6 +78,7 @@ export class DuelScene implements Scene {
       }),
       app.onFrame((info) => this.frame(info)),
     );
+    void this.loadPuppets(renderer);
   }
 
   exit(): void {
@@ -84,6 +89,8 @@ export class DuelScene implements Scene {
     this.notice?.remove();
     this.notice = null;
     this.session?.dispose();
+    this.disposed = true;
+    this.app.stage.setLook('menu');
     this.renderer?.destroy();
     this.hud?.destroy();
     this.setup.dispose?.();
@@ -92,6 +99,37 @@ export class DuelScene implements Scene {
     this.session = null;
     this.renderer = null;
     this.hud = null;
+  }
+
+  /** Decodes both puppets' drawings (no beat timing depends on this) and hands them to the renderer. */
+  private async loadPuppets(renderer: DuelRenderer): Promise<void> {
+    const { app, setup } = this;
+    const local = setup.localPlayer;
+    const given = setup.puppets;
+    let mine: PuppetImagesSource | null = given?.[local] ?? null;
+    let theirs: PuppetImagesSource | null = given?.[local === 0 ? 1 : 0] ?? null;
+    let chosenPreset = '';
+    try {
+      if (!mine) {
+        const drawing = await loadSelectedPuppet(app.store);
+        chosenPreset = drawing.presetId ?? '';
+        mine = await decodeDrawing(drawing);
+      }
+    } catch {
+      mine = null;
+    }
+    try {
+      mine ??= await loadPresetImages(PRESETS[0] as (typeof PRESETS)[number]);
+      if (!theirs) {
+        const pink = PRESETS.find((p) => p.id === 'preset-pink') ?? (PRESETS[1] as (typeof PRESETS)[number]);
+        const teal = PRESETS[0] as (typeof PRESETS)[number];
+        theirs = await loadPresetImages(chosenPreset === pink.id ? teal : pink);
+      }
+    } catch {
+      return;
+    }
+    if (this.disposed || this.renderer !== renderer) return;
+    renderer.setPuppets(local === 0 ? [mine, theirs] : [theirs, mine]);
   }
 
   private frame(info: FrameInfo): void {
@@ -124,6 +162,7 @@ export class DuelScene implements Scene {
           this.hud?.popGrade(e.grade, strike.x, strike.y);
           if (e.player !== this.setup.localPlayer) this.renderer?.setOpponentFocus(strike);
         }
+        this.hud?.recordGrade(e.player === this.setup.localPlayer, e.grade);
         if (e.player === this.setup.localPlayer && e.offsetMs !== null)
           this.app.recordJudgedOffset(e.offsetMs);
         break;
@@ -133,6 +172,7 @@ export class DuelScene implements Scene {
         break;
       case 'actOver':
         sfx.play('actOver');
+        this.hud?.aside('act');
         break;
       case 'matchOver':
         this.over = true;

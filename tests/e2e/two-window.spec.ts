@@ -151,6 +151,7 @@ test('a room flow: create, join by link, and a third page is turned away', async
   await expect(B.getByTestId('player-1-name')).toContainText('Bo');
   await expect(A.getByTestId('status')).toHaveText('Bo joined');
   await expect(B.getByTestId('rtt')).toContainText('Round trip');
+  await A.screenshot({ path: 'test-results/screens/final-lobby.png' });
 
   // Ready states travel both ways, and only the host can start.
   await expect(B.getByTestId('start')).toBeHidden();

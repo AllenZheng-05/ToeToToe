@@ -1,7 +1,6 @@
 import type { App } from '../app/app';
 import { slotTime } from '../core/beat';
 import type { BeatGrid, Tunables } from '../core/types';
-import { playRectOnScreen } from '../stage/layout';
 
 /** One scripted click: a slot of an absolute phrase, a point in the play area, and an optional shift in ms. */
 export interface ScriptEvent {
@@ -19,8 +18,8 @@ export function isDue(ev: ScriptEvent, grid: BeatGrid, tunables: Tunables, now: 
 }
 
 /**
- * Plays scripted clicks for tests (debug mode only). Each due event becomes a real `pointerdown` and
- * `pointerup` PointerEvent on the stage element, so the click takes the same path as a person's.
+ * Plays scripted clicks for tests (debug mode only): each due event is a click on the local session at
+ * the event's slot time.
  * Events belong to the match that was running when they were added; a new match drops what is left.
  */
 export class ScriptRunner {
@@ -54,20 +53,18 @@ export class ScriptRunner {
     for (const e of due) this.click(e);
   }
 
+  /**
+   * Hands the click to the local session stamped with its exact slot time (plus the event's shift),
+   * the way the bot driver does, not with the time this code happens to run. A browser without a GPU
+   * can block the main thread for a tenth of a second per frame, and a click that is late by that much
+   * would be judged a different slot. The pointer path itself is covered by the human-click test.
+   */
   private click(e: ScriptEvent): void {
-    const rect = playRectOnScreen(this.app.stage.fit);
-    const init: PointerEventInit = {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + e.x * rect.width,
-      clientY: rect.top + e.y * rect.height,
-      pointerId: 1,
-      pointerType: 'mouse',
-      isPrimary: true,
-      button: 0,
-    };
-    const host = this.app.stage.host;
-    host.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
-    host.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+    const { app } = this;
+    const session = app.session;
+    const match = app.match;
+    if (!session || !match) return;
+    const time = slotTime(match.grid, e.phrase, e.slot, app.tunables) + (e.offsetMs ?? 0) / 1000;
+    session.pointerDown(e.x, e.y, time, false);
   }
 }

@@ -24,6 +24,7 @@ declare global {
 }
 
 const FPS_SMOOTHING = 0.1;
+const SCRIPT_POLL_MS = 4;
 
 function row(parent: HTMLElement, label: string): HTMLElement {
   const r = document.createElement('div');
@@ -62,6 +63,20 @@ export function createDebugOverlay(app: App): void {
   panel.className = 'debug-overlay';
   panel.dataset.testid = 'debug-overlay';
   document.body.appendChild(panel);
+
+  // Collapsible, so a screenshot can have the stage to itself.
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'dbg-toggle';
+  toggle.dataset.testid = 'debug-toggle';
+  toggle.textContent = 'debug -';
+  toggle.setAttribute('aria-expanded', 'true');
+  toggle.addEventListener('click', () => {
+    const collapsed = panel.classList.toggle('collapsed');
+    toggle.textContent = collapsed ? 'debug +' : 'debug -';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  });
+  panel.appendChild(toggle);
 
   const beat = row(panel, 'beat');
   const audio = row(panel, 'audio clock');
@@ -122,6 +137,10 @@ export function createDebugOverlay(app: App): void {
     inputs.set(key, input);
   }
 
+  // Scripted clicks are test hooks, not game timing: poll them between frames so a slow renderer
+  // (headless software GL draws only a few frames a second) does not make them late.
+  window.setInterval(() => runner.update(), SCRIPT_POLL_MS);
+
   let fps = 60;
   let last = 0;
   app.onFrame((info: FrameInfo) => {
@@ -161,8 +180,6 @@ export function createDebugOverlay(app: App): void {
       const mean = offsets.reduce((a, b) => a + b, 0) / offsets.length;
       set(offset, `${lastOffset.toFixed(1)} ms  mean ${mean.toFixed(1)} ms (${offsets.length})`);
     }
-
-    runner.update();
 
     const conn = app.connection;
     if (conn) {

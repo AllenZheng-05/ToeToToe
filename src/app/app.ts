@@ -1,6 +1,7 @@
 import { AudioEngine } from '../audio/engine';
 import { createTunables } from '../core/tunables';
 import type { DuelSession, SessionEvent } from '../core/session';
+import { openStore, type Store } from '../data/store';
 import type { Tunables, Unsubscribe } from '../core/types';
 import type { MatchSetup, Scene } from '../scenes/types';
 import { Stage } from '../stage/stage';
@@ -19,11 +20,21 @@ const HIDDEN_POLL_MS = 100;
 const JUDGED_HISTORY = 20;
 /** How many session events are kept for the debug hooks. */
 const EVENT_HISTORY = 500;
+/**
+ * Adaptive resolution. A machine that cannot fill the screen quickly (no GPU, software GL) draws
+ * frames a tenth of a second apart and blocks the page between them, which makes clicks late.
+ * After this many slow frames the stage draws at half resolution. ?res=1 keeps full resolution.
+ */
+const SLOW_FRAME_MS = 50;
+const SLOW_FRAMES_TO_DOWNSCALE = 20;
+const LOW_RESOLUTION = 0.5;
 
 export class App {
   readonly params: AppParams;
   readonly tunables: Tunables;
   readonly stage: Stage;
+  /** Settings, puppets and songs on this device (IndexedDB, or memory when that is unavailable). */
+  readonly store: Store;
   /** The match being played, if any (read by the debug overlay). */
   match: MatchSetup | null = null;
   /** The local session of the current duel, if any. */
@@ -43,16 +54,20 @@ export class App {
   private readonly frameCallbacks = new Set<(info: FrameInfo) => void>();
   private hiddenTimer: number | null = null;
   private rafId = 0;
+  private lastFrameStamp = 0;
+  private slowFrames = 0;
+  private readonly pinResolution = new URLSearchParams(window.location.search).get('res') === '1';
 
-  private constructor(params: AppParams, stage: Stage) {
+  private constructor(params: AppParams, stage: Stage, store: Store) {
     this.params = params;
     this.tunables = createTunables(params.tunables);
     this.stage = stage;
+    this.store = store;
   }
 
   static async create(host: HTMLElement, params: AppParams): Promise<App> {
-    const stage = await Stage.create(host);
-    const app = new App(params, stage);
+    const [stage, store] = await Promise.all([Stage.create(host), openStore()]);
+    const app = new App(params, stage, store);
     app.start();
     return app;
   }
@@ -108,6 +123,7 @@ export class App {
       this.rafId = requestAnimationFrame(frame);
       this.tick({ hidden: false, timestamp });
       this.stage.render();
+      this.watchFrameRate(timestamp);
     };
     this.rafId = requestAnimationFrame(frame);
 
@@ -116,6 +132,14 @@ export class App {
     this.hiddenTimer = window.setInterval(() => {
       if (document.hidden) this.tick({ hidden: true, timestamp: performance.now() });
     }, HIDDEN_POLL_MS);
+  }
+
+  private watchFrameRate(timestamp: number): void {
+    const gap = this.lastFrameStamp > 0 ? timestamp - this.lastFrameStamp : 0;
+    this.lastFrameStamp = timestamp;
+    if (this.pinResolution || this.stage.resolution <= LOW_RESOLUTION) return;
+    this.slowFrames = gap > SLOW_FRAME_MS ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 2);
+    if (this.slowFrames >= SLOW_FRAMES_TO_DOWNSCALE) this.stage.setResolution(LOW_RESOLUTION);
   }
 
   private tick(info: FrameInfo): void {

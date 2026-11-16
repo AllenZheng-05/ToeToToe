@@ -1,6 +1,13 @@
 import type { DuelSession } from '../core/session';
 import type { BeatGrid, PlayerId, Transport, Unsubscribe } from '../core/types';
 
+/** The three part images of one puppet (at the PARTS sizes): canvases, bitmaps or images. */
+export interface PuppetImagesSource {
+  head: CanvasImageSource;
+  sock: CanvasImageSource;
+  sword: CanvasImageSource;
+}
+
 export interface MatchSetup {
   localPlayer: PlayerId;
   /** Display names, index = PlayerId. */
@@ -23,6 +30,12 @@ export interface MatchSetup {
   watchRematch?: (cb: (s: { local: boolean; peer: boolean }) => void) => Unsubscribe;
   /** Room matches: leave the room for good (closes the connection, restores the address bar). */
   leave?: () => void;
+  /**
+   * Drawings of the two puppets, index = PlayerId. A missing side (or the whole field) means the
+   * duel picks them: the local player's selected puppet, and the pink preset (teal if the local
+   * player chose pink) for the opponent. Drawings from the other player fill this in later.
+   */
+  puppets?: [PuppetImagesSource | null, PuppetImagesSource | null];
   /** The bot's live options, so the debug overlay can edit its accuracy. */
   bot?: { options: { accuracy: number } };
 }
