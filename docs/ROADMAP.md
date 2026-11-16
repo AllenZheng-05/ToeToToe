@@ -26,9 +26,9 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 
 - [x] 2.1 B: BroadcastChannel loopback transport, room codes, `room.ts` handshake and clock sync, protocol tests
 - [x] 2.2 B: Trystero peer transport (strategy as config), room full, leaving
-- [~] 2.3 B: lobby flow (create, join, waiting, ready, start, rematch, friend left)
-- [~] 2.4 B: Playwright two-window check playing a full act
-- [ ] 2.5 R: review
+- [x] 2.3 B: lobby flow (create, join, waiting, ready, start, rematch, friend left)
+- [x] 2.4 B: Playwright two-window check playing a full act
+- [ ] 2.5 R: review (folded into the final whole-codebase review)
 
 ## Milestone 3: the final design
 
