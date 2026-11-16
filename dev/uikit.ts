@@ -66,7 +66,7 @@ function build(): void {
   );
   n.append(
     tornNote('Click on the beat to plant a strike. Maya has to parry them next.', { width: 176 }),
-    tornNote('A child in row G: "that one is just a sock."', { width: 170, rotate: 2 }),
+    tornNote('"that one is just a sock."', { width: 170, rotate: 2 }),
   );
 
   // Buttons and inputs

@@ -1,6 +1,6 @@
 /**
  * Dev page for the stage art kit: /dev/artkit.html?scene=attack|defend|menu|rig|owners
- * (owners: both players' strikes and targets side by side, local = teal with the round outline, opponent = pink, scalloped)
+ * (owners: both players' strikes and targets side by side, local = teal, opponent = pink, same round outline)
  * Extra query parameters: sweep=1 (rig: animate the local tip), time=SECONDS (freeze the fake clock),
  * beat=N (freeze the fake clock at beat N of the defend loop), tipx / tipy (rig: fixed tip, design px).
  */
@@ -149,7 +149,7 @@ async function main(): Promise<void> {
   const teal = new PuppetView(tealImages, 1);
   const pink = new PuppetView(pinkImages, -1);
   const colours = distinctColours(colourOf(tealImages), colourOf(pinkImages));
-  const sets = [createPlayerMarkTextures(colours[0], true), createPlayerMarkTextures(colours[1], false)] as [
+  const sets = [createPlayerMarkTextures(colours[0]), createPlayerMarkTextures(colours[1])] as [
     ReturnType<typeof createPlayerMarkTextures>,
     ReturnType<typeof createPlayerMarkTextures>,
   ];

@@ -144,7 +144,7 @@ export function createMarkTextures(): MarkTextures {
   return t;
 }
 
-/** Discs one player's marks use: their colour, with the outline of their side (own, or the opponent's). */
+/** Discs one player's marks use: their colour, with the round outline. */
 export interface PlayerMarkTextures {
   target: Texture[];
   strike: Texture[];
@@ -152,125 +152,43 @@ export interface PlayerMarkTextures {
   destroy(): void;
 }
 
-/** Bumps around a scalloped (opponent) edge. */
-const SCALLOPS = 14;
-
-/** A scalloped disc: the radius swings between `rIn` and `rOut` in rounded bumps with notches between them. */
-function scalloped(g: CanvasRenderingContext2D, rIn: number, rOut: number, fill: string): void {
-  const steps = 240;
-  g.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const a = (i / steps) * Math.PI * 2;
-    const r = rIn + (rOut - rIn) * Math.abs(Math.cos((SCALLOPS * a) / 2));
-    const x = Math.cos(a) * r;
-    const y = Math.sin(a) * r;
-    if (i === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
-  }
-  g.closePath();
-  g.fillStyle = fill;
-  g.fill();
-}
-
-function ring(g: CanvasRenderingContext2D, r: number, width: number, stroke: string): void {
-  g.beginPath();
-  g.arc(0, 0, r, 0, Math.PI * 2);
-  g.lineWidth = width;
-  g.strokeStyle = stroke;
-  g.stroke();
-}
-
-function bakePlayerTarget(n: number, colour: Rgb, own: boolean): Texture {
+function bakePlayerTarget(n: number, colour: Rgb): Texture {
   const [c, g] = discCanvas(TARGET_BAKED_RADIUS);
   const fill = rgbCss(colour);
   const text = rgbCss(inkOrWhite(colour));
-  if (own) {
-    // The same double ring as the neutral target, in the player's colour.
-    circle(g, 44, INK);
-    circle(g, 39, fill);
-    circle(g, 35, INK);
-    circle(g, 32, fill);
-    numeral(g, n, 30, text);
-  } else {
-    // The opponent's: a scalloped ink edge and a single thin inner ring.
-    scalloped(g, 38, 44, INK);
-    circle(g, 37, fill);
-    ring(g, 33, 2.5, INK);
-    numeral(g, n, 30, text);
-  }
+  // The same double ring as the neutral target, in the player's colour.
+  circle(g, 44, INK);
+  circle(g, 39, fill);
+  circle(g, 35, INK);
+  circle(g, 32, fill);
+  numeral(g, n, 30, text);
   return canvasTexture(c, RESOLUTION);
 }
 
-function bakePlayerStrike(n: number, colour: Rgb, own: boolean, newest: boolean): Texture {
+function bakePlayerStrike(n: number, colour: Rgb, newest: boolean): Texture {
   const inner = newest ? 32 : 27;
   const [c, g] = discCanvas(inner + 3);
   // The newest strike is a lighter shade of the player's colour, and larger.
   const disc = newest ? lighten(colour, 0.35) : colour;
-  if (own) {
-    circle(g, inner + 3, INK);
-    circle(g, inner, '#FFFFFF');
-    circle(g, inner - 4, rgbCss(disc));
-  } else {
-    scalloped(g, inner - 2, inner + 3, INK);
-    circle(g, inner - 2, '#FFFFFF');
-    circle(g, inner - 6, rgbCss(disc));
-  }
+  circle(g, inner + 3, INK);
+  circle(g, inner, '#FFFFFF');
+  circle(g, inner - 4, rgbCss(disc));
   numeral(g, n, newest ? 26 : 22, rgbCss(inkOrWhite(disc)));
   return canvasTexture(c, RESOLUTION);
 }
 
-/** Bakes one player's disc textures once, at set-up. `own` is true for the local player's marks. */
-export function createPlayerMarkTextures(colour: Rgb, own: boolean): PlayerMarkTextures {
+/** Bakes one player's disc textures once, at set-up.  */
+export function createPlayerMarkTextures(colour: Rgb): PlayerMarkTextures {
   const nums = [1, 2, 3, 4, 5, 6, 7, 8];
   const t: PlayerMarkTextures = {
-    target: nums.map((n) => bakePlayerTarget(n, colour, own)),
-    strike: nums.map((n) => bakePlayerStrike(n, colour, own, false)),
-    newest: nums.map((n) => bakePlayerStrike(n, colour, own, true)),
+    target: nums.map((n) => bakePlayerTarget(n, colour)),
+    strike: nums.map((n) => bakePlayerStrike(n, colour, false)),
+    newest: nums.map((n) => bakePlayerStrike(n, colour, true)),
     destroy(): void {
       for (const x of [...t.target, ...t.strike, ...t.newest]) x.destroy(true);
     },
   };
   return t;
-}
-
-/** Size of the baked spotlight, design px. */
-export const SPOTLIGHT = { width: 420, height: 440 } as const;
-
-/**
- * A soft white beam widening toward the ledge with a pool of light at its foot, baked once; tinted per player
- * on a sprite whose anchor is its bottom centre.
- */
-export function bakeSpotlight(): Texture {
-  const { width: w, height: h } = SPOTLIGHT;
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const g = c.getContext('2d') as CanvasRenderingContext2D;
-  const beam = g.createLinearGradient(0, 0, 0, h);
-  beam.addColorStop(0, 'rgba(255,255,255,0)');
-  beam.addColorStop(1, 'rgba(255,255,255,0.8)');
-  g.fillStyle = beam;
-  g.beginPath();
-  g.moveTo(w / 2 - 90, 0);
-  g.lineTo(w / 2 + 90, 0);
-  g.lineTo(w - 10, h - 24);
-  g.lineTo(10, h - 24);
-  g.closePath();
-  g.fill();
-  // The pool on the ledge.
-  g.save();
-  g.translate(w / 2, h - 24);
-  g.scale(1, 0.16);
-  const pool = g.createRadialGradient(0, 0, 0, 0, 0, w / 2 - 4);
-  pool.addColorStop(0, 'rgba(255,255,255,0.95)');
-  pool.addColorStop(0.7, 'rgba(255,255,255,0.55)');
-  pool.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = pool;
-  g.beginPath();
-  g.arc(0, 0, w / 2 - 4, 0, Math.PI * 2);
-  g.fill();
-  g.restore();
-  return canvasTexture(c, 1);
 }
 
 const clampNum = (i: number): number => Math.min(7, Math.max(0, i));
@@ -300,7 +218,7 @@ export class MarksView {
   }
 
   /**
-   * Gives each player's marks their own colour and outline (index = PlayerId). The textures are owned by the
+   * Gives each player's marks their own colour (index = PlayerId). The textures are owned by the
    * caller. A mark always wears the colour of the player who planted it, i.e. `view.attacker`.
    */
   setPlayers(sets: [PlayerMarkTextures, PlayerMarkTextures], colours: [Rgb, Rgb]): void {

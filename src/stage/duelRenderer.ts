@@ -1,9 +1,8 @@
-import { Sprite, type Texture } from 'pixi.js';
 import type { DuelView, PlayerId, Strike, Tunables } from '../core/types';
-import { rgbHex, type Rgb } from '../puppet/colour';
+import type { Rgb } from '../puppet/colour';
 import type { Point } from '../puppet/parts';
 import { solveRig } from '../puppet/rig';
-import { bakeSpotlight, createPlayerMarkTextures, MarksView, type PlayerMarkTextures } from './art/marks';
+import { createPlayerMarkTextures, MarksView, type PlayerMarkTextures } from './art/marks';
 import { PuppetView, type PuppetImages } from './art/puppetView';
 import { DESIGN_H, DESIGN_W, playToDesign } from './layout';
 import type { Stage } from './stage';
@@ -22,12 +21,6 @@ export const IDLE_TIP: readonly [Point, Point] = [
 export const FACING = [1, -1] as const;
 /** How fast the opponent's tip eases toward its focus, per second. */
 const EASE_RATE = 10;
-/** Where the spotlight's foot stands on the ledge (design px), and how bright it is while lit. */
-const SPOT_FOOT_Y = 606;
-const SPOT_ALPHA = 0.7;
-/** How fast the spotlight fades in and out, per second. */
-const SPOT_RATE = 9;
-
 /**
  * Turns a DuelView into stage updates: two jointed puppets, the strike discs and the targets.
  * Holds no rules: it only reads the view. Sprites and textures are created once and reused.
@@ -41,9 +34,6 @@ export class DuelRenderer {
   private focus: Point | null = null;
   private touch = false;
   private lastPhase: DuelView['phase'] | null = null;
-  private readonly spotTexture: Texture;
-  private readonly spots: [Sprite, Sprite];
-  private readonly spotAlpha: [number, number] = [0, 0];
   private markSets: [PlayerMarkTextures, PlayerMarkTextures] | null = null;
 
   constructor(
@@ -53,36 +43,20 @@ export class DuelRenderer {
   ) {
     this.marks = new MarksView(stage.markTextures);
     stage.marks.addChild(this.marks.container);
-    // A pool of light on whoever is acting (or attacks first), behind the puppets.
-    this.spotTexture = bakeSpotlight();
-    const spot = (id: PlayerId): Sprite => {
-      const s = new Sprite(this.spotTexture);
-      s.anchor.set(0.5, 1);
-      s.position.set((PUPPET_BASE[id] as Point).x, SPOT_FOOT_Y);
-      s.alpha = 0;
-      s.visible = false;
-      return s;
-    };
-    this.spots = [spot(0), spot(1)];
-    stage.puppets.addChildAt(this.spots[1], 0);
-    stage.puppets.addChildAt(this.spots[0], 0);
   }
 
   /**
-   * Each player's mark colour (index = PlayerId), once per match. Bakes both players' disc textures: the local
-   * player's marks keep the plain round outline, the opponent's get the scalloped one.
+   * Each player's mark colour (index = PlayerId), once per match. Bakes both players' disc textures.
    */
-  setMarkColours(colours: [Rgb, Rgb], local: PlayerId): void {
+  setMarkColours(colours: [Rgb, Rgb]): void {
     this.markSets?.[0].destroy();
     this.markSets?.[1].destroy();
     const sets: [PlayerMarkTextures, PlayerMarkTextures] = [
-      createPlayerMarkTextures(colours[0], local === 0),
-      createPlayerMarkTextures(colours[1], local === 1),
+      createPlayerMarkTextures(colours[0]),
+      createPlayerMarkTextures(colours[1]),
     ];
     this.markSets = sets;
     this.marks.setPlayers(sets, colours);
-    this.spots[0].tint = rgbHex(colours[0]);
-    this.spots[1].tint = rgbHex(colours[1]);
   }
 
   /** The two puppets' drawings, index = PlayerId. Until this is called no puppet is drawn. */
@@ -143,34 +117,12 @@ export class DuelRenderer {
       pv.setPose(pose);
     }
 
-    // The light falls on the acting puppet; before a round, on the one who attacks first.
-    const acting: PlayerId | null =
-      view.phase === 'attack'
-        ? view.attacker
-        : view.phase === 'defend'
-          ? view.attacker === 0
-            ? 1
-            : 0
-          : view.phase === 'countIn' || view.phase === 'intermission'
-            ? view.attacker
-            : null;
-    const sk = 1 - Math.exp(-SPOT_RATE * Math.max(0, dtSec));
-    for (const id of [0, 1] as const) {
-      const want = id === acting ? SPOT_ALPHA : 0;
-      const a = (this.spotAlpha[id] += (want - this.spotAlpha[id]) * sk);
-      const sprite = this.spots[id];
-      sprite.visible = a > 0.01;
-      sprite.alpha = a;
-    }
-
     this.marks.update(view, this.tunables, this.bpm, { touch: this.touch });
   }
 
   destroy(): void {
     this.marks.container.removeFromParent();
     this.marks.destroy();
-    for (const s of this.spots) s.destroy();
-    this.spotTexture.destroy(true);
     this.markSets?.[0].destroy();
     this.markSets?.[1].destroy();
     this.markSets = null;

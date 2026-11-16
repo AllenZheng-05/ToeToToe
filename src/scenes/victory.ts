@@ -16,7 +16,7 @@ const TILE_W = 46;
 const TILE_GAP = 5;
 const WORD_GAP = 18;
 const WIN_LINE_MAX_W = 560;
-const WIN_AUDIENCE = 'a child in row G: "again! again!"';
+const WIN_AUDIENCE = '"again! again!"';
 
 /** "2 acts to 1". Pure. */
 export function scoreLine(actWins: readonly [number, number], winner: PlayerId): string {

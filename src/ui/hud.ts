@@ -305,7 +305,7 @@ export class Hud {
     if (this.heckle?.isConnected) return;
     const lines = HECKLES[kind];
     const line = lines[this.heckleCount[kind]++ % lines.length] as string;
-    const note = tornNote(`A child in row G: "${line}"`, { rotate: -3, width: 176 });
+    const note = tornNote(`"${line}"`, { rotate: -3, width: 176 });
     note.dataset.testid = 'heckle';
     const slot = el('div', 'hud-heckle-slot', this.root);
     slot.appendChild(note);

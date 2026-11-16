@@ -177,7 +177,7 @@ export class DuelScene implements Scene {
     renderer.setPuppets(both);
     // Once per match: the colour each player's marks wear.
     const colours = markColoursOf(both, local);
-    renderer.setMarkColours(colours, local);
+    renderer.setMarkColours(colours);
     this.hud?.setMarkColours(colours);
     // Kept on the setup so the victory screen stands the same puppets on the stage.
     setup.puppets = local === 0 ? [mine, theirs] : [theirs, mine];
