@@ -174,7 +174,11 @@ function probe(page: Page): Promise<DuelProbe | null> {
 test('final design: title and duel screenshots', async ({ page }) => {
   await page.goto('/?debug=1&res=1');
   await expect(page.getByTestId('title')).toBeVisible();
+  // The puppets load a moment after the sign: the photograph waits for both to stand on the stage.
+  await expect(page.getByTestId('title')).toHaveAttribute('data-puppets', 'ready');
   await page.getByTestId('debug-toggle').click();
+  await page.mouse.move(640, 330);
+  await page.waitForTimeout(600);
   await page.screenshot({ path: 'test-results/screens/final-title.png' });
 
   await page.goto('/?debug=1&bot=1&autoplay=1&bpm=100&seed=3&botAccuracy=0.9&res=1');

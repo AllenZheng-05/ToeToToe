@@ -317,3 +317,27 @@
 .tp-footer .tt-btn[hidden] {
   display: none;
 }
+
+/* ---------- phones (the stage is scaled down: controls grow to tap size, panels scroll) ---------- */
+.compact .tp-panel {
+  max-height: 590px;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+.compact .tp-list {
+  max-height: none;
+  overflow: visible;
+}
+.compact .tp-row {
+  min-height: var(--tt-tap);
+}
+.compact .tp-nudge {
+  min-width: var(--tt-tap);
+  height: var(--tt-tap);
+}
+.compact .tp-header .tp-back {
+  --vis: 40px;
+}
+.compact .tp-footer {
+  flex-wrap: wrap;
+}

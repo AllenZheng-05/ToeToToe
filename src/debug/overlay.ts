@@ -227,11 +227,16 @@ export function createDebugOverlay(app: App): void {
 
     const offsets = app.judgedOffsets;
     const lastOffset = offsets[offsets.length - 1];
+    // The calibrated offset in use, then what the judged taps measured (their offset is after this is applied).
+    const calibrated = `set ${app.inputOffsetMs} ms`;
     if (lastOffset === undefined) {
-      set(offset, '-');
+      set(offset, calibrated);
     } else {
       const mean = offsets.reduce((a, b) => a + b, 0) / offsets.length;
-      set(offset, `${lastOffset.toFixed(1)} ms  mean ${mean.toFixed(1)} ms (${offsets.length})`);
+      set(
+        offset,
+        `${calibrated}  ${lastOffset.toFixed(1)} ms  mean ${mean.toFixed(1)} ms (${offsets.length})`,
+      );
     }
 
     const conn = app.connection;

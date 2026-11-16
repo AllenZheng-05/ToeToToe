@@ -2,11 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Toe to Toe</title>
   </head>
   <body>
     <div id="app"></div>
+    <div class="rotate-prompt" data-testid="rotate-prompt" role="alert">
+      <div class="rotate-phone" aria-hidden="true">
+        <div class="rotate-phone-body"><div class="rotate-phone-screen"></div></div>
+      </div>
+      <p class="rotate-note">Turn your phone sideways</p>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

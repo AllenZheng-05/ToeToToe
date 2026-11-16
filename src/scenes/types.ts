@@ -36,6 +36,8 @@ export interface MatchSetup {
    * player chose pink) for the opponent. Drawings from the other player fill this in later.
    */
   puppets?: [PuppetImagesSource | null, PuppetImagesSource | null];
+  /** Room matches: the name the friend gave their puppet (display only: lets the duel avoid two identical default socks). */
+  peerPuppetName?: string | null;
   /** The bot's live options, so the debug overlay can edit its accuracy. */
   bot?: { options: { accuracy: number } };
 }

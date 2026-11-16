@@ -55,8 +55,8 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 
 ## Milestone 7: launch polish
 
-- [ ] 7.1 B: phone layout, touch, rotate prompt
-- [ ] 7.2 B: input calibration screen
+- [x] 7.1 B: phone layout, touch, rotate prompt
+- [x] 7.2 B: input calibration screen
 - [x] 7.3 B: remaining unmocked states
 - [x] 7.4 H: deployment config, CSP, `docs/DEPLOY.md`, `docs/ASSETS.md`
 

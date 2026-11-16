@@ -10,12 +10,37 @@ export interface StageFit {
   offsetY: number;
 }
 
-/** Scale and offset that fit the 1280x720 design into a window, keeping the aspect (letterboxed, centred). */
-export function fitStage(windowW: number, windowH: number): StageFit {
-  const w = Math.max(1, windowW);
-  const h = Math.max(1, windowH);
+/** Space the device keeps for notches and rounded corners (CSS px), as in env(safe-area-inset-*). */
+export interface Insets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * Scale and offset that fit the 1280x720 design into a window, keeping the aspect (letterboxed, centred).
+ * With `insets` the design fits the window minus the safe-area insets.
+ */
+export function fitStage(windowW: number, windowH: number, insets?: Insets): StageFit {
+  const left = Math.max(0, insets?.left ?? 0);
+  const top = Math.max(0, insets?.top ?? 0);
+  const w = Math.max(1, windowW - left - Math.max(0, insets?.right ?? 0));
+  const h = Math.max(1, windowH - top - Math.max(0, insets?.bottom ?? 0));
   const scale = Math.min(w / DESIGN_W, h / DESIGN_H);
-  return { scale, offsetX: (w - DESIGN_W * scale) / 2, offsetY: (h - DESIGN_H * scale) / 2 };
+  return { scale, offsetX: left + (w - DESIGN_W * scale) / 2, offsetY: top + (h - DESIGN_H * scale) / 2 };
+}
+
+/** The most the interface grows (type and padding) when the stage is scaled down, as a factor. */
+export const MAX_UI_SCALE = 1.35;
+/** Smallest comfortable tap target, CSS px. */
+export const MIN_TAP_PX = 44;
+
+/** Overlay sizes for a given stage scale: a 44 CSS px tap target in design px, and how much type grows. */
+export function touchSizes(scale: number): { tap: number; uiScale: number } {
+  const s = scale > 0 ? scale : 1;
+  const tap = Math.max(MIN_TAP_PX, MIN_TAP_PX / s);
+  return { tap, uiScale: Math.min(MAX_UI_SCALE, tap / MIN_TAP_PX) };
 }
 
 /** The play rect in client pixels for a given fit. */

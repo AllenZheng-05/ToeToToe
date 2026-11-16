@@ -1,6 +1,6 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container } from 'pixi.js';
-import { DESIGN_H, DESIGN_W, fitStage, type StageFit } from './layout';
+import { DESIGN_H, DESIGN_W, fitStage, touchSizes, type Insets, type StageFit } from './layout';
 import { createMarkTextures, loadMarkFonts, type MarkTextures } from './art/marks';
 import {
   createTheatre,
@@ -40,6 +40,7 @@ export class Stage {
   readonly marks = new Container();
   /** Baked once and shared by every duel's MarksView. */
   readonly markTextures: MarkTextures;
+  private readonly probe: HTMLDivElement;
   private readonly theatreTextures: TheatreTextures;
   private currentFit: StageFit = { scale: 1, offsetX: 0, offsetY: 0 };
   private cacheResolution = 0;
@@ -49,12 +50,14 @@ export class Stage {
     app: Application,
     host: HTMLElement,
     overlay: HTMLDivElement,
+    probe: HTMLDivElement,
     textures: TheatreTextures,
     markTextures: MarkTextures,
   ) {
     this.app = app;
     this.host = host;
     this.overlay = overlay;
+    this.probe = probe;
     this.theatreTextures = textures;
     this.markTextures = markTextures;
     this.theatre = createTheatre(textures, { sign: true, sun: SUN_MENU });
@@ -87,8 +90,12 @@ export class Stage {
     overlay.style.width = `${DESIGN_W}px`;
     overlay.style.height = `${DESIGN_H}px`;
     host.appendChild(overlay);
+    // Measures env(safe-area-inset-*): CSS resolves them, this element's padding is read back.
+    const probe = document.createElement('div');
+    probe.className = 'safe-probe';
+    host.appendChild(probe);
 
-    const stage = new Stage(app, host, overlay, textures, markTextures);
+    const stage = new Stage(app, host, overlay, probe, textures, markTextures);
     app.stage.addChild(stage.root);
     window.addEventListener('resize', stage.onResize);
     stage.resize();
@@ -148,12 +155,28 @@ export class Stage {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.app.renderer.resize(w, h);
-    const f = fitStage(w, h);
+    const f = fitStage(w, h, this.safeInsets());
     this.currentFit = f;
     this.root.scale.set(f.scale);
     this.root.position.set(f.offsetX, f.offsetY);
     this.overlay.style.transform = `translate(${f.offsetX}px, ${f.offsetY}px) scale(${f.scale})`;
+    // Tap targets stay 44 CSS px when the stage is scaled down: the kit reads these.
+    const { tap, uiScale } = touchSizes(f.scale);
+    this.overlay.style.setProperty('--tt-tap', `${tap.toFixed(2)}px`);
+    this.overlay.style.setProperty('--tt-ui-scale', uiScale.toFixed(3));
+    this.overlay.classList.toggle('compact', tap > 44.5);
     this.cacheBackdrop();
+  }
+
+  private safeInsets(): Insets {
+    const cs = getComputedStyle(this.probe);
+    const px = (v: string): number => Number.parseFloat(v) || 0;
+    return {
+      top: px(cs.paddingTop),
+      right: px(cs.paddingRight),
+      bottom: px(cs.paddingBottom),
+      left: px(cs.paddingLeft),
+    };
   }
 
   render(): void {
@@ -167,5 +190,6 @@ export class Stage {
     this.markTextures.destroy();
     this.app.destroy(true);
     this.overlay.remove();
+    this.probe.remove();
   }
 }

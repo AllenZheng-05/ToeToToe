@@ -1,4 +1,6 @@
 import type { App, FrameInfo } from '../app/app';
+import { watchAudio } from '../app/audioGate';
+import { holdWakeLock } from '../app/wakeLock';
 import { createSfx } from '../audio/sfx';
 import { DuelSession, type SessionEvent } from '../core/session';
 import type { Unsubscribe } from '../core/types';
@@ -46,7 +48,7 @@ export class DuelScene implements Scene {
       tunables: app.tunables,
       firstAttacker: setup.firstAttacker,
       firstPhrase: setup.firstPhrase,
-      inputOffsetMs: 0,
+      inputOffsetMs: app.inputOffsetMs,
     });
     this.session = session;
     app.session = session;
@@ -59,6 +61,8 @@ export class DuelScene implements Scene {
     const hud = new Hud(app.overlay, app.tunables, setup.names);
     this.renderer = renderer;
     this.hud = hud;
+    // A phone shows the touch-sized targets from the start, before the first finger lands.
+    if (window.matchMedia('(pointer: coarse)').matches) renderer.setPointer(null, true);
 
     this.cleanups.push(
       session.on((e) => this.onEvent(e, sfx)),
@@ -77,6 +81,8 @@ export class DuelScene implements Scene {
         if (state === 'closed') this.onPeerLeft();
       }),
       app.onFrame((info) => this.frame(info)),
+      holdWakeLock(),
+      watchAudio(app),
     );
     void this.loadPuppets(renderer);
   }
@@ -120,10 +126,13 @@ export class DuelScene implements Scene {
     }
     try {
       mine ??= await loadPresetImages(PRESETS[0] as (typeof PRESETS)[number]);
+      const teal = PRESETS[0] as (typeof PRESETS)[number];
+      const pink = PRESETS.find((p) => p.id === 'preset-pink') ?? (PRESETS[1] as (typeof PRESETS)[number]);
       if (!theirs) {
-        const pink = PRESETS.find((p) => p.id === 'preset-pink') ?? (PRESETS[1] as (typeof PRESETS)[number]);
-        const teal = PRESETS[0] as (typeof PRESETS)[number];
         theirs = await loadPresetImages(chosenPreset === pink.id ? teal : pink);
+      } else if (setup.peerPuppetName === teal.name && chosenPreset === teal.id) {
+        // Both players kept the default teal sock: show the friend's as the pink one. Display only; nothing is sent.
+        theirs = await loadPresetImages(pink);
       }
     } catch {
       return;

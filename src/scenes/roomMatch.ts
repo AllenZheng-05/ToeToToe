@@ -35,6 +35,7 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
     );
   const music = (async () => playTheme(await theme, engine, info.grid.startTime))();
   const peerImages = connection.exchange.view.peerPuppet?.images ?? null;
+  const peerPuppetName = connection.exchange.view.peerPuppet?.name ?? null;
 
   let rematchState = { local: false, peer: false };
   const offRematch = room.on((e) => {
@@ -50,6 +51,7 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
     firstAttacker: info.firstAttacker,
     firstPhrase: info.firstPhrase,
     online: true,
+    peerPuppetName,
     puppets: room.localPlayer === 0 ? [null, peerImages] : [peerImages, null],
     dispose() {
       void music.then((m) => m.stop());

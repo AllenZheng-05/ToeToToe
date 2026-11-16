@@ -56,12 +56,16 @@ export class DuelRenderer {
     this.counts[1] = undefined;
   }
 
-  /** Local pointer position in design pixels (kept on the stage), or null when unknown. */
+  /**
+   * Local pointer position in design pixels (kept on the stage), or null when unknown. `touch` is whether
+   * it came from a finger: the targets are drawn at the larger touch radius the rules judge with.
+   * A lifted finger sends nothing, so the sword tip stays where the finger left it.
+   */
   setPointer(p: Point | null, touch = false): void {
     this.pointer = p
       ? { x: Math.min(DESIGN_W, Math.max(0, p.x)), y: Math.min(DESIGN_H, Math.max(0, p.y)) }
       : null;
-    if (touch) this.touch = true;
+    this.touch = touch;
   }
 
   /** The opponent's tip eases toward this strike or target (play-area fractions). */

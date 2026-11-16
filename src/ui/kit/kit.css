@@ -14,6 +14,12 @@
   --font-display: Bungee, Impact, sans-serif;
   --font-type: 'Special Elite', 'Courier New', monospace;
   --font-marker: 'Permanent Marker', 'Comic Sans MS', cursive;
+  /*
+   * Phones: the app sets these on the overlay. --tt-tap is 44 CSS px expressed in design px (44 at full
+   * size, larger when the stage is scaled down), --tt-ui-scale grows type and padding a little with it.
+   */
+  --tt-tap: 44px;
+  --tt-ui-scale: 1;
 }
 
 [class*='tt-'] {
@@ -107,14 +113,14 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  height: max(44px, var(--vis));
-  padding: 3px var(--px) 0 var(--px);
+  height: max(var(--tt-tap), var(--vis));
+  padding: 3px calc(var(--px) * var(--tt-ui-scale)) 0 calc(var(--px) * var(--tt-ui-scale));
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--fg);
   font-family: var(--font-display);
-  font-size: var(--fs);
+  font-size: calc(var(--fs) * var(--tt-ui-scale));
   line-height: 1;
   white-space: nowrap;
   text-decoration: none;
@@ -129,8 +135,8 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: calc((100% - var(--vis)) / 2);
-  height: var(--vis);
+  top: calc((100% - max(var(--vis), var(--tt-tap) - 10px)) / 2);
+  height: max(var(--vis), calc(var(--tt-tap) - 10px));
   clip-path: var(--clip);
 }
 .tt-btn::before {
@@ -205,14 +211,14 @@
 }
 .tt-input {
   width: 150px;
-  height: 46px;
+  height: max(46px, var(--tt-tap));
   padding: 3px 12px 0 12px;
   background: var(--paper);
   color: var(--ink);
   border: 3px dashed var(--ink);
   border-radius: 0;
   font-family: var(--font-type);
-  font-size: 20px;
+  font-size: calc(20px * var(--tt-ui-scale));
 }
 .tt-input::placeholder {
   color: #6b6258;

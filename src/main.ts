@@ -2,6 +2,7 @@ import 'pixi.js/unsafe-eval';
 import './style.css';
 import './ui/kit/kit.css';
 import { App } from './app/app';
+import { unlockAudioOnFirstTap } from './app/audioGate';
 import { parseParams } from './app/params';
 import { createDebugOverlay } from './debug/overlay';
 import { TitleScene } from './scenes/title';
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   const params = parseParams(window.location.href);
   await fontsReady();
   const app = await App.create(host, params);
+  unlockAudioOnFirstTap(app);
   if (params.debug) createDebugOverlay(app);
   loading.remove();
   await app.go(new TitleScene(app));

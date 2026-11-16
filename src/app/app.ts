@@ -3,7 +3,8 @@ import { createTunables } from '../core/tunables';
 import type { DuelSession, SessionEvent } from '../core/session';
 import { createAccount, type Account } from '../data/account';
 import { supabaseConfigFromEnv, type Remote } from '../data/remote';
-import { openStore, type Store } from '../data/store';
+import { openStore, SETTINGS, type Store } from '../data/store';
+import { clampOffset } from '../scenes/calibrationModel';
 import { cleanName, loadName, saveName } from './profile';
 import type { Tunables, Unsubscribe } from '../core/types';
 import type { MatchSetup, Scene } from '../scenes/types';
@@ -47,6 +48,14 @@ async function createAppAccount(store: Store): Promise<Account> {
   return createAccount({ remote, store });
 }
 
+async function loadInputOffset(store: Store): Promise<number> {
+  try {
+    return clampOffset(await store.settings.get<number>(SETTINGS.inputOffsetMs, 0));
+  } catch {
+    return 0;
+  }
+}
+
 export class App {
   readonly params: AppParams;
   readonly tunables: Tunables;
@@ -62,6 +71,8 @@ export class App {
 
   /** The player's display name (also kept in the store's settings). */
   displayName = '';
+  /** Input calibration: milliseconds this player's taps are late (negative: early). Applied to every duel session. */
+  inputOffsetMs = 0;
   /** Saving across devices. Resolves once the (optional) Supabase client is ready; never rejects. */
   readonly account: Promise<Account>;
   /** False while a full-screen DOM scene (the workshop) hides the stage: the canvas is not redrawn. */
@@ -95,6 +106,7 @@ export class App {
     const [stage, store] = await Promise.all([Stage.create(host), openStore()]);
     const app = new App(params, stage, store);
     app.displayName = await loadName(store);
+    app.inputOffsetMs = await loadInputOffset(store);
     app.start();
     // Never blocks the game: restores a saved session in the background, if there is an account service.
     void app.account.then((a) => a.init());
@@ -114,6 +126,13 @@ export class App {
   /** Overlay root in 1280x720 design pixels. */
   get overlay(): HTMLElement {
     return this.stage.overlay;
+  }
+
+  /** Remember the calibrated offset (whole milliseconds) and use it from the next duel on. */
+  setInputOffset(ms: number): number {
+    this.inputOffsetMs = clampOffset(ms);
+    void this.store.settings.set(SETTINGS.inputOffsetMs, this.inputOffsetMs).catch(() => undefined);
+    return this.inputOffsetMs;
   }
 
   /** Clean, remember and return the display name. */

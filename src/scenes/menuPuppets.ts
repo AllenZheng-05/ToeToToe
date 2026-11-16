@@ -155,3 +155,21 @@ export async function loadPartnerPuppet(playerPresetId: string | null): Promise<
     return null;
   }
 }
+
+/**
+ * The images to show for the friend's puppet. When both players kept the default teal sock the friend's is
+ * shown as the pink preset (display only; nothing is sent). Otherwise the friend's own drawings. Never rejects.
+ */
+export async function peerPuppetForDisplay(
+  peer: { name: string; images: PuppetImages },
+  localPresetId: string | null,
+): Promise<PuppetImages> {
+  const teal = PRESETS[0];
+  const pink = PRESETS.find((p) => p.id === 'preset-pink') ?? PRESETS[1];
+  if (!teal || !pink || localPresetId !== teal.id || peer.name !== teal.name) return peer.images;
+  try {
+    return await loadPresetImages(pink);
+  } catch {
+    return peer.images;
+  }
+}

@@ -425,3 +425,63 @@
   border-color: var(--yellow);
   box-shadow: 0 0 0 3px var(--ink);
 }
+
+/* ---------- phones (the stage is scaled down: controls grow to tap size, panels scroll) ---------- */
+.compact .ws-tools {
+  width: 204px;
+  max-height: 596px;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+.compact .ws-grid4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.compact .ws-icon-btn,
+.compact .ws-size-btn {
+  height: var(--tt-tap);
+  min-width: var(--tt-tap);
+}
+.compact .ws-swatch {
+  width: var(--tt-tap);
+  height: var(--tt-tap);
+}
+.compact .ws-tabs {
+  left: 262px;
+}
+.compact .ws-tab {
+  height: var(--tt-tap);
+  font-size: 22px;
+}
+.compact .ws-page {
+  left: 262px;
+  top: 194px;
+}
+.compact .ws-hint {
+  left: 262px;
+  top: 640px;
+}
+.compact .ws-persist {
+  left: 262px;
+  top: 684px;
+}
+.compact .ws-guides-toggle {
+  left: 740px !important;
+  top: 106px !important;
+  min-height: var(--tt-tap);
+  font-size: 18px;
+}
+.compact .ws-right {
+  max-height: 590px;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+.compact .ws-drawer {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-height: none;
+}
+.compact .ws-chip {
+  height: max(54px, var(--tt-tap));
+}
+.compact .ws-actions {
+  flex-wrap: wrap;
+}

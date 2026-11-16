@@ -1,11 +1,13 @@
 import { showRoomInAddress } from '../app/address';
 import type { App } from '../app/app';
+import { awaitAudio } from '../app/audioGate';
 import { MAX_NAME_LENGTH } from '../app/profile';
 import { createAccountPanel, type AccountPanel } from '../account/panel';
 import { generateRoomCode, normaliseRoomCode, roomCodeFromUrl } from '../net/codes';
 import { button, letterTiles, textInput, tornNote } from '../ui/kit/kit';
 import { menuButton, node, sceneRoot, signContent, tagline } from '../ui/menu';
 import { createBotMatch } from './botMatch';
+import { CalibrationScene } from './calibration';
 import { DuelScene } from './duel';
 import { LobbyScene } from './lobby';
 import { loadLocalPuppet, loadPartnerPuppet, MenuPuppets } from './menuPuppets';
@@ -51,6 +53,18 @@ export class TitleScene implements Scene {
       'sign',
     );
     side.append(bot, workshop);
+
+    // The right curtain: the account panel (once there is one) and, below it, input calibration.
+    const corner = node('div', 'title-account', root);
+    corner.appendChild(
+      menuButton(
+        'Calibrate timing',
+        'open-calibration',
+        'secondary',
+        () => void this.openCalibration(),
+        'side',
+      ),
+    );
 
     // The ledge: name on the left, the room buttons in the middle.
     const name = textInput({
@@ -156,14 +170,15 @@ export class TitleScene implements Scene {
       if (this.exited) return;
       if (mine) puppets.setImages(0, mine.images);
       if (partner) puppets.setImages(1, partner);
+      // The puppets are drawn from the next frame on (tests and screenshots wait for this).
+      root.dataset.puppets = 'ready';
     })();
 
     // The account panel, once the account service (if any) is ready. Never waited for.
     void app.account.then((account) => {
       if (this.exited || !this.root) return;
       const panel = createAccountPanel({ account, store: app.store, getDisplayName: () => app.displayName });
-      const corner = node('div', 'title-account', this.root);
-      corner.appendChild(panel.root);
+      corner.prepend(panel.root);
       this.panel = panel;
     });
   }
@@ -189,7 +204,7 @@ export class TitleScene implements Scene {
     if (this.starting) return;
     this.starting = true;
     const name = this.app.setDisplayName(rawName);
-    await this.app.engine.resume();
+    await awaitAudio(this.app);
     if (changeAddress) showRoomInAddress(code);
     await this.app.go(new LobbyScene(this.app, { code, role, name }));
   }
@@ -200,8 +215,14 @@ export class TitleScene implements Scene {
     const name = this.root?.querySelector<HTMLInputElement>('[data-testid="name-input"]');
     if (name) this.app.setDisplayName(name.value);
     // This runs inside a click, which is the user gesture that lets audio start.
-    await this.app.engine.resume();
+    await awaitAudio(this.app);
     await this.app.go(new DuelScene(this.app, await createBotMatch(this.app)));
+  }
+
+  private async openCalibration(): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    await this.app.go(new CalibrationScene(this.app, { back: () => new TitleScene(this.app) }));
   }
 
   private async openWorkshop(): Promise<void> {

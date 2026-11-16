@@ -1,9 +1,11 @@
 import type { App } from '../app/app';
+import { watchAudio } from '../app/audioGate';
 import { openConnection, type Connection } from '../app/connection';
 import type { PlayerId, Unsubscribe } from '../core/types';
 import { roomLink } from '../net/codes';
 import { button, labelStrip, letterTiles, progressBar, tornNote } from '../ui/kit/kit';
 import { captioned, menuButton, node, sceneRoot, signContent } from '../ui/menu';
+import { CalibrationScene } from './calibration';
 import { DuelScene } from './duel';
 import {
   controls,
@@ -14,7 +16,7 @@ import {
   type LobbyModel,
   type TransferBar,
 } from './lobbyModel';
-import { loadLocalPuppet, MenuPuppets } from './menuPuppets';
+import { loadLocalPuppet, MenuPuppets, peerPuppetForDisplay } from './menuPuppets';
 import { createRoomMatch, leaveRoom } from './roomMatch';
 import { ThemeScene } from './themeScene';
 import { TitleScene } from './title';
@@ -52,7 +54,9 @@ export class LobbyScene implements Scene {
   private draw: () => void = () => {};
   private puppets: MenuPuppets | null = null;
   private peerVersion = 0;
+  private localPresetId: string | null = null;
   private readonly localPlayer: PlayerId;
+  private stopWatchingAudio: (() => void) | null = null;
 
   constructor(
     private readonly app: App,
@@ -117,6 +121,14 @@ export class LobbyScene implements Scene {
     const side = node('div', 'lobby-side', root);
     const rtt = node('div', 'rtt-tag tt-tag', side, 'rtt');
     const xfer = node('div', 'xfer', side, 'transfers');
+    const calibrate = menuButton(
+      'Calibrate timing',
+      'open-calibration',
+      'secondary',
+      () => void this.openCalibration(),
+      'side',
+    );
+    side.appendChild(calibrate);
 
     // The battle theme.
     const themeRow = node('div', 'theme-row', root);
@@ -148,6 +160,8 @@ export class LobbyScene implements Scene {
       'ready-toggle',
       'primary',
       () => {
+        // A tap: the moment the browser lets audio start.
+        void this.app.engine.resume().catch(() => undefined);
         const room = this.connection?.room;
         if (room) room.setReady(!room.localReady);
         this.sync();
@@ -218,6 +232,7 @@ export class LobbyScene implements Scene {
       start.disabled = !c.canStart;
       retry.hidden = !c.showRetry;
       back.hidden = !c.showBackToTitle;
+      calibrate.disabled = m.failed || m.transport === 'full' || m.transport === 'closed';
       edit.disabled = m.failed || m.transport === 'full' || m.transport === 'closed';
       ready.hidden = c.showRetry || m.transport === 'full';
     };
@@ -230,9 +245,13 @@ export class LobbyScene implements Scene {
     void (async () => {
       const mine = await loadLocalPuppet(this.app);
       if (this.exited || !mine) return;
+      this.localPresetId = mine.presetId;
       puppets.setImages(this.localPlayer, mine.images);
+      this.peerVersion = 0;
+      this.showPeerPuppet();
     })();
 
+    this.stopWatchingAudio = watchAudio(this.app);
     this.draw();
     if (this.opts.connection) this.resume(this.opts.connection);
     else void this.connect();
@@ -240,6 +259,8 @@ export class LobbyScene implements Scene {
 
   exit(): void {
     this.exited = true;
+    this.stopWatchingAudio?.();
+    this.stopWatchingAudio = null;
     if (this.leaveTimer !== null) window.clearTimeout(this.leaveTimer);
     this.leaveTimer = null;
     this.detach();
@@ -281,6 +302,17 @@ export class LobbyScene implements Scene {
       new WorkshopScene(this.app, {
         back: () => new LobbyScene(this.app, { code, role, name, connection }),
         onSaved: () => connection.exchange.sendPuppet(),
+      }),
+    );
+  }
+
+  private async openCalibration(): Promise<void> {
+    const connection = this.keepRoom();
+    if (!connection) return;
+    const { code, role, name } = this.opts;
+    await this.app.go(
+      new CalibrationScene(this.app, {
+        back: () => new LobbyScene(this.app, { code, role, name, connection }),
       }),
     );
   }
@@ -375,7 +407,12 @@ export class LobbyScene implements Scene {
     const peer = this.connection?.exchange.view.peerPuppet;
     if (!peer || !this.puppets || peer.version === this.peerVersion) return;
     this.peerVersion = peer.version;
-    this.puppets.setImages(this.localPlayer === 0 ? 1 : 0, peer.images);
+    const slot = this.localPlayer === 0 ? 1 : 0;
+    const puppets = this.puppets;
+    void peerPuppetForDisplay(peer, this.localPresetId).then((images) => {
+      // A newer set of drawings, or leaving the scene, makes this one stale.
+      if (!this.exited && this.peerVersion === peer.version) puppets.setImages(slot, images);
+    });
   }
 
   /** Copy what the room knows into the model and redraw. */
