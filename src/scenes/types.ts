@@ -22,6 +22,10 @@ export interface MatchSetup {
   dispose?: () => void;
   /** Called when the player asks for a rematch on the victory screen; resolves to the next setup. */
   rematch?: () => Promise<MatchSetup>;
+  /** Bot matches: the scene the victory screen's Rematch opens (the set-up screen), instead of starting at once. */
+  rematchScene?: () => Scene;
+  /** Bot matches: the preset the bot wears (read by the debug hooks). */
+  botPuppetId?: string;
   /** Called once with the local session right after the duel scene creates it (autoplay hooks in here). */
   attach?: (session: DuelSession) => void;
   /** True for a match played through a Room (two people), false for the bot. */

@@ -31,6 +31,8 @@ export interface ThemePickerOptions extends ThemeDeps {
   onDone?(selected: LoadedTheme): void;
   /** Shows a "Back to the room" button in the header: leave without choosing again. */
   onBack?(): void;
+  /** The back button's words (default "Back to the room"). */
+  backLabel?: string;
 }
 
 /** Seconds of lead before a preview starts, so the first beat is never in the past. */
@@ -100,7 +102,7 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
   const sub = h('span', 'tp-sub', 'pick the song you fight to');
   header.append(heading, sub);
   if (opts.onBack) {
-    const back = button('Back to the room', {
+    const back = button(opts.backLabel ?? 'Back to the room', {
       variant: 'pink',
       testId: 'theme-back',
       onClick: () => opts.onBack?.(),

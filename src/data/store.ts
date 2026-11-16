@@ -48,6 +48,8 @@ export const SETTINGS = {
   selectedThemeId: 'selectedThemeId',
   musicVolume: 'musicVolume',
   sfxVolume: 'sfxVolume',
+  /** The bot match set-up (difficulty, the bot's puppet); parsed with `parseBotSetup`. */
+  botSetup: 'botSetup',
 } as const;
 
 const DB_NAME = 'toetotoe';

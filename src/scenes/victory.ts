@@ -99,6 +99,11 @@ export class VictoryScene implements Scene {
       'rematch',
       'primary',
       () => {
+        // A bot match goes back to the set-up screen, every setting as it was.
+        if (setup.rematchScene) {
+          void this.app.go(setup.rematchScene());
+          return;
+        }
         const next = setup.rematch;
         if (!next) return;
         rematch.disabled = true;
@@ -115,7 +120,7 @@ export class VictoryScene implements Scene {
       },
       'main',
     );
-    rematch.disabled = !setup.rematch;
+    rematch.disabled = !setup.rematch && !setup.rematchScene;
     const room = this.app.connection;
     const goToRoom = (): void => {
       if (!room) return;

@@ -77,7 +77,119 @@ test('title loads', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Toe to Toe' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create a room', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Join a room', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Practise against the bot' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Play against the bot' })).toBeVisible();
+});
+
+/** The set-up screen's state as the page reports it. */
+function setupState(page: Page): Promise<{ difficulty: string | undefined; bot: string | undefined }> {
+  return page.evaluate(() => ({
+    difficulty: window.__ttt?.botSetup.difficulty,
+    bot: window.__ttt?.botSetup.botPuppet,
+  }));
+}
+
+test('the bot set-up screen: theme, puppets and difficulty reach the match, survive a rematch and a reload', async ({
+  page,
+}) => {
+  await page.goto(`/?debug=1&autoplay=1&seed=3&tunables=${SHORT}&res=1`);
+  await page.getByTestId('play-bot').click();
+  const setup = page.getByTestId('bot-setup');
+  await expect(setup).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Play against the bot' })).toBeVisible();
+  for (const id of ['bot-row-theme', 'bot-row-my-puppet', 'bot-row-bot-puppet', 'bot-row-difficulty']) {
+    await expect(page.getByTestId(id)).toBeVisible();
+  }
+  await expect(setup).toHaveAttribute('data-puppets', 'ready');
+  // The defaults: Medium, and the pink sock against the player's teal one.
+  await expect(page.getByTestId('bot-difficulty-medium')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-puppet-pink')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-theme-title')).toContainText('Click track');
+
+  await page.getByTestId('bot-difficulty-hard').click();
+  await page.getByTestId('bot-puppet-blue').click();
+  await expect(page.getByTestId('bot-difficulty-hard')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-difficulty-medium')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('bot-puppet-blue')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-puppet-pink')).toHaveAttribute('aria-pressed', 'false');
+  expect(await setupState(page)).toEqual({ difficulty: 'hard', bot: 'preset-blue' });
+  // The stage now shows the blue sock: give it a moment to draw, then photograph the screen on its own.
+  await page.getByTestId('debug-toggle').click();
+  await page.mouse.move(640, 450);
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'test-results/screens/bot-setup.png' });
+
+  // Change the battle theme: the theme screen says where Back goes, and returns here.
+  await page.getByTestId('bot-theme-change').click();
+  await expect(page.getByTestId('theme-picker')).toBeVisible();
+  await expect(page.getByTestId('theme-back')).toHaveText('Back to the set-up');
+  await page.getByTestId('theme-back').click();
+  await expect(setup).toBeVisible();
+  await page.getByTestId('bot-theme-change').click();
+  await page.getByTestId('theme-row-placeholder-gallop-152').click();
+  await page.getByTestId('done').click();
+  await expect(setup).toBeVisible();
+  await expect(page.getByTestId('bot-theme-title')).toContainText('Placeholder: Gallop (152)');
+  await expect(page.getByTestId('bot-theme-title')).toContainText('152 BPM');
+  expect(await setupState(page)).toEqual({ difficulty: 'hard', bot: 'preset-blue' });
+
+  // Start: that theme's tempo, that accuracy, that puppet.
+  await page.getByTestId('bot-start').click();
+  await expect(page.getByTestId('banner')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__ttt?.grid?.bpm)).toBe(152);
+  expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBe(0.92);
+  expect(await page.evaluate(() => window.__ttt?.botPuppetId)).toBe('preset-blue');
+  await expect(page.getByTestId('victory')).toBeVisible({ timeout: 100_000 });
+
+  // Rematch: the set-up screen again, everything as it was.
+  await page.getByTestId('rematch').click();
+  await expect(setup).toBeVisible();
+  await expect(page.getByTestId('bot-difficulty-hard')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-puppet-blue')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-theme-title')).toContainText('Placeholder: Gallop (152)');
+
+  // And after a reload.
+  await page.reload();
+  await expect(page.getByTestId('title')).toHaveAttribute('data-puppets', 'ready');
+  await page.getByTestId('play-bot').click();
+  await expect(setup).toBeVisible();
+  await expect(page.getByTestId('bot-difficulty-hard')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-puppet-blue')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('bot-theme-title')).toContainText('Placeholder: Gallop (152)');
+  expect(await setupState(page)).toEqual({ difficulty: 'hard', bot: 'preset-blue' });
+});
+
+test('Surprise me is settled once per visit and shown on the stage', async ({ page }) => {
+  await page.goto('/?debug=1&bpm=120&res=1');
+  await page.getByTestId('play-bot').click();
+  await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
+  await page.getByTestId('bot-puppet-surprise').click();
+  await expect(page.getByTestId('bot-puppet-surprise')).toHaveAttribute('aria-pressed', 'true');
+  const shown = await page.getByTestId('bot-setup').getAttribute('data-bot-puppet');
+  expect(shown).toMatch(/^preset-/);
+  await page.getByTestId('bot-start').click();
+  await expect(page.getByTestId('banner')).toBeVisible();
+  expect(await page.evaluate(() => window.__ttt?.botPuppetId)).toBe(shown);
+  expect(await setupState(page)).toEqual({ difficulty: 'medium', bot: 'surprise' });
+});
+
+test('Back to title leaves the set-up screen', async ({ page }) => {
+  await page.goto('/?debug=1');
+  await page.getByTestId('play-bot').click();
+  await expect(page.getByTestId('bot-setup')).toBeVisible();
+  await page.getByTestId('back-to-title').click();
+  await expect(page.getByTestId('title')).toBeVisible();
+  await expect(page.getByTestId('bot-setup')).toHaveCount(0);
+});
+
+test('with ?bot=1 the first click starts a match without the set-up screen', async ({ page }) => {
+  await page.goto('/?debug=1&bot=1&bpm=120');
+  await startBot(page);
+  await expect(page.getByTestId('bot-setup')).toHaveCount(0);
+  // The saved set-up is Medium; ?botAccuracy= overrides it when present.
+  expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBe(0.75);
+  await page.goto('/?debug=1&bot=1&bpm=120&botAccuracy=0.4');
+  await startBot(page);
+  expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBe(0.4);
 });
 
 test('a bot match runs to victory unattended', async ({ page }) => {
@@ -144,6 +256,9 @@ test('rematch starts a fresh match', async ({ page }) => {
   await page.goto(FAST_MATCH);
   await playToVictory(page);
   await page.getByTestId('rematch').click();
+  // Rematch goes back to the set-up screen; Start plays again.
+  await expect(page.getByTestId('bot-setup')).toBeVisible();
+  await page.getByTestId('bot-start').click();
   await expect(page.getByTestId('victory')).toHaveCount(0);
   await expect(page.getByTestId('banner')).toHaveAttribute('data-phase', 'countIn');
   await expect(page.getByTestId('health-0')).toHaveAttribute('data-value', '30');

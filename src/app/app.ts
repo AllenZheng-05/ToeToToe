@@ -4,6 +4,8 @@ import type { DuelSession, SessionEvent } from '../core/session';
 import { createAccount, type Account } from '../data/account';
 import { supabaseConfigFromEnv, type Remote } from '../data/remote';
 import { openStore, SETTINGS, type Store } from '../data/store';
+import { PRESETS } from '../puppet/presets';
+import { DEFAULT_BOT_SETUP, parseBotSetup, type BotSetup } from '../scenes/botSetupModel';
 import { clampOffset } from '../scenes/calibrationModel';
 import { cleanName, loadName, saveName } from './profile';
 import type { Tunables, Unsubscribe } from '../core/types';
@@ -56,6 +58,16 @@ async function loadInputOffset(store: Store): Promise<number> {
   }
 }
 
+const PRESET_IDS = PRESETS.map((p) => p.id);
+
+async function loadBotSetup(store: Store): Promise<BotSetup> {
+  try {
+    return parseBotSetup(await store.settings.get<unknown>(SETTINGS.botSetup, null), PRESET_IDS);
+  } catch {
+    return { ...DEFAULT_BOT_SETUP };
+  }
+}
+
 export class App {
   readonly params: AppParams;
   readonly tunables: Tunables;
@@ -73,6 +85,8 @@ export class App {
   displayName = '';
   /** Input calibration: milliseconds this player's taps are late (negative: early). Applied to every duel session. */
   inputOffsetMs = 0;
+  /** The bot match set-up chosen on the "Play against the bot" screen (kept in the store's settings). */
+  botSetup: BotSetup = { ...DEFAULT_BOT_SETUP };
   /** Saving across devices. Resolves once the (optional) Supabase client is ready; never rejects. */
   readonly account: Promise<Account>;
   /** False while a full-screen DOM scene (the workshop) hides the stage: the canvas is not redrawn. */
@@ -107,6 +121,7 @@ export class App {
     const app = new App(params, stage, store);
     app.displayName = await loadName(store);
     app.inputOffsetMs = await loadInputOffset(store);
+    app.botSetup = await loadBotSetup(store);
     app.start();
     // Never blocks the game: restores a saved session in the background, if there is an account service.
     void app.account.then((a) => a.init());
@@ -133,6 +148,13 @@ export class App {
     this.inputOffsetMs = clampOffset(ms);
     void this.store.settings.set(SETTINGS.inputOffsetMs, this.inputOffsetMs).catch(() => undefined);
     return this.inputOffsetMs;
+  }
+
+  /** Change part of the bot set-up and remember it. Returns the new set-up. */
+  setBotSetup(change: Partial<Pick<BotSetup, 'difficulty' | 'botPuppet'>>): BotSetup {
+    this.botSetup = parseBotSetup({ ...this.botSetup, ...change }, PRESET_IDS);
+    void this.store.settings.set(SETTINGS.botSetup, this.botSetup).catch(() => undefined);
+    return this.botSetup;
   }
 
   /** Clean, remember and return the display name. */

@@ -162,6 +162,18 @@ test('title, fonts and stage load, and a bot match runs to victory', async ({ op
   await expect(page.getByTestId('winner')).toHaveText(/ WINS!$/);
 });
 
+test('the bot set-up screen works under the policy and starts a match', async ({ open }) => {
+  const page = await open('/?debug=1&bpm=120');
+  await expect(page.getByTestId('title')).toHaveAttribute('data-puppets', 'ready');
+  await page.getByTestId('play-bot').click();
+  await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
+  await page.getByTestId('bot-difficulty-hard').click();
+  await page.getByTestId('bot-puppet-yellow').click();
+  await page.getByTestId('bot-start').click();
+  await expect(page.getByTestId('banner')).toBeVisible();
+  expect(await page.evaluate(() => window.__ttt?.botPuppetId)).toBe('preset-yellow');
+});
+
 test('the workshop opens, a stroke is drawn and the puppet is saved', async ({ open }) => {
   const page = await open('/?debug=1');
   await page.getByTestId('open-workshop').click();

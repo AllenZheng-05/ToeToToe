@@ -3,6 +3,7 @@ import { DEFAULT_TUNABLES } from '../core/tunables';
 import type { SessionEvent } from '../core/session';
 import type { BeatGrid, Tunables } from '../core/types';
 import type { Room } from '../net/room';
+import type { BotSetup } from '../scenes/botSetupModel';
 import { ScriptRunner, type ScriptEvent } from './script';
 
 declare global {
@@ -19,6 +20,9 @@ declare global {
       healthLog: App['healthLog'];
       /** Queue scripted clicks; see src/debug/script.ts. */
       script(events: ScriptEvent[]): void;
+      /** The bot match set-up (difficulty, the bot's puppet) and, in a bot match, the preset the bot wears. */
+      botSetup: BotSetup;
+      botPuppetId: string | null;
       /** The friend's puppet as received in the room: its name, a checksum of the head's pixels, and how many sets have arrived. */
       peerPuppet: { name: string; headChecksum: number; version: number } | null;
       /** The room's battle theme as this side sees it. */
@@ -107,6 +111,8 @@ export function createDebugOverlay(app: App): void {
       events: app.events,
       healthLog: app.healthLog,
       script: (events: ScriptEvent[]) => runner.add(events),
+      botSetup: app.botSetup,
+      botPuppetId: app.match?.botPuppetId ?? null,
       peerPuppet: peerPuppetInfo(app),
       theme: themeInfo(app),
     }),

@@ -95,6 +95,22 @@ test('the title fits a phone, buttons are tap-sized, and the other menu screens 
   await page.screenshot({ path: 'test-results/screens/phone-lobby.png' });
 });
 
+test('the bot set-up screen fits a phone and its buttons are tap-sized', async ({ page }) => {
+  await page.goto('/?debug=1&res=1');
+  await expect(page.getByTestId('title')).toHaveAttribute('data-puppets', 'ready');
+  await page.getByTestId('play-bot').tap();
+  await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
+  await expectNoScrollbars(page);
+  await expectTouchSized(page, '[data-testid="bot-setup"]');
+  await page.getByTestId('bot-puppet-yellow').tap();
+  await page.getByTestId('bot-difficulty-easy').tap();
+  await expect(page.getByTestId('bot-difficulty-easy')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('debug-toggle').tap();
+  await page.screenshot({ path: 'test-results/screens/phone-bot-setup.png' });
+  await page.getByTestId('bot-start').tap();
+  await expect(page.getByTestId('banner')).toBeVisible();
+});
+
 test('a tap starts a bot match and a tap plants a strike', async ({ page }) => {
   await page.goto('/?debug=1&bot=1&bpm=120&botAccuracy=1&res=1');
   await expect(page.getByTestId('title')).toHaveAttribute('data-puppets', 'ready');

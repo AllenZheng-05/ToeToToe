@@ -79,6 +79,7 @@ test('calibration measures late taps, stores the offset and uses it in a match',
   await expect(page.getByTestId('title')).toHaveAttribute('data-puppets', 'ready');
   expect(await stored()).toBe(shown);
   await page.getByTestId('play-bot').click();
+  await page.getByTestId('bot-start').click();
   await expect(page.getByTestId('banner')).toBeVisible();
   expect(await page.evaluate(() => window.__ttt?.session?.inputOffsetMs)).toBe(shown);
   await expect(page.locator('.dbg-val').filter({ hasText: `set ${shown} ms` })).toHaveCount(1);

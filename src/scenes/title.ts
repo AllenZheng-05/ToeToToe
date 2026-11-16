@@ -6,9 +6,8 @@ import { createAccountPanel, type AccountPanel } from '../account/panel';
 import { generateRoomCode, normaliseRoomCode, roomCodeFromUrl } from '../net/codes';
 import { button, letterTiles, textInput, tornNote } from '../ui/kit/kit';
 import { menuButton, node, sceneRoot, signContent, tagline } from '../ui/menu';
-import { createBotMatch } from './botMatch';
+import { BotSetupScene, startBotMatch } from './botSetup';
 import { CalibrationScene } from './calibration';
-import { DuelScene } from './duel';
 import { LobbyScene } from './lobby';
 import { loadLocalPuppet, loadPartnerPuppet, MenuPuppets } from './menuPuppets';
 import type { Scene } from './types';
@@ -39,10 +38,10 @@ export class TitleScene implements Scene {
     sign.appendChild(tagline(TAGLINE));
     const side = node('div', 'sign-row', sign);
     const bot = menuButton(
-      'Practise against the bot',
+      'Play against the bot',
       'play-bot',
       'secondary',
-      () => void this.startBotMatch(),
+      () => void this.openBotSetup(),
       'sign',
     );
     const workshop = menuButton(
@@ -152,7 +151,7 @@ export class TitleScene implements Scene {
 
     if (app.params.bot) {
       // ?bot=1: the first click anywhere is the user gesture that unlocks audio and starts the match.
-      const onDown = (): void => void this.startBotMatch();
+      const onDown = (): void => void this.openBotSetup();
       document.addEventListener('pointerdown', onDown, { once: true });
       this.cleanup.push(() => document.removeEventListener('pointerdown', onDown));
     }
@@ -209,14 +208,21 @@ export class TitleScene implements Scene {
     await this.app.go(new LobbyScene(this.app, { code, role, name }));
   }
 
-  private async startBotMatch(): Promise<void> {
+  /**
+   * "Play against the bot" opens the set-up screen. With ?bot=1 it starts a match at once from the saved set-up
+   * (the first click anywhere is the user gesture that unlocks audio).
+   */
+  private async openBotSetup(): Promise<void> {
     if (this.starting) return;
     this.starting = true;
     const name = this.root?.querySelector<HTMLInputElement>('[data-testid="name-input"]');
     if (name) this.app.setDisplayName(name.value);
-    // This runs inside a click, which is the user gesture that lets audio start.
-    await awaitAudio(this.app);
-    await this.app.go(new DuelScene(this.app, await createBotMatch(this.app)));
+    if (this.app.params.bot) {
+      await awaitAudio(this.app);
+      await startBotMatch(this.app);
+      return;
+    }
+    await this.app.go(new BotSetupScene(this.app));
   }
 
   private async openCalibration(): Promise<void> {

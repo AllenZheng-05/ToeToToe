@@ -8,9 +8,11 @@ export interface ThemeSceneOptions {
   back(): Scene;
   /** Called with the chosen theme just before returning (the lobby offers it to the friend). */
   onChosen(theme: LoadedTheme): void;
+  /** The back button's words, for screens that are not a room (default "Back to the room"). */
+  backLabel?: string;
 }
 
-/** The battle theme screen as a scene (the host only). It fills the screen; the stage is not redrawn while it is up. */
+/** The battle theme screen as a scene (the host only in a room; the bot set-up opens it too). It fills the screen; the stage is not redrawn while it is up. */
 export class ThemeScene implements Scene {
   private host: HTMLElement | null = null;
   private picker: { destroy(): void } | null = null;
@@ -35,6 +37,7 @@ export class ThemeScene implements Scene {
         void app.go(opts.back());
       },
       onBack: () => void app.go(opts.back()),
+      backLabel: opts.backLabel,
     });
     host.appendChild(picker.root);
     app.overlay.appendChild(host);

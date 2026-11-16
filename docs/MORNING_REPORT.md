@@ -23,11 +23,11 @@ pnpm install
 pnpm dev            # http://localhost:5173
 ```
 
-- **Bot match:** open `http://localhost:5173/` and press "Practise against the bot".
+- **Bot match:** open `http://localhost:5173/` and press "Play against the bot", choose the battle theme, the puppets and the difficulty, then Start.
 - **Two windows, no network:** open `http://localhost:5173/?net=tab`, press "Create a room", copy the link, and open it in a second window of the same browser, keeping `net=tab` in the query (`http://localhost:5173/CODE?net=tab`). Both windows must be visible: browsers slow down hidden tabs.
 - **Two browsers over the real network:** the same without `net=tab`. Use two different browsers or two machines.
 - **Debug overlay:** add `debug=1` to the query. A small "debug +" tab appears at the top left; it opens a panel with every tunable as a live number input, the clock, the measured input offset and the round-trip time.
-- **Other parameters:** `bot=1` (first click starts a bot match), `autoplay=1` (a bot plays your side too), `bpm=140`, `seed=7`, `botAccuracy=0.5`, `tunables={"startHealth":30}`, `res=1` (never drop the render resolution).
+- **Other parameters:** `bot=1` (first click starts a bot match from the saved set-up, skipping the set-up screen), `autoplay=1` (a bot plays your side too), `bpm=140`, `seed=7`, `botAccuracy=0.5`, `tunables={"startHealth":30}`, `res=1` (never drop the render resolution).
 - **Component test benches** (dev server only): `/dev/artkit.html`, `/dev/uikit.html`, `/dev/workshop.html`, `/dev/theme.html`, `/dev/account.html`.
 - **Browser checks:** `pnpm e2e` builds, previews on port 4173 and runs Chromium headless (about 6 minutes). Screenshots of every screen land in `test-results/screens/`.
 
