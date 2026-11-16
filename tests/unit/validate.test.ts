@@ -102,7 +102,9 @@ describe('theme offer bounds', () => {
   it('holds an upload to the tempo range and a first beat inside the song', () => {
     expect(themeBeatOk('upload', 120, 0.5, t)).toBe(true);
     expect(themeBeatOk('upload', 79, 0.5, t)).toBe(false);
-    expect(themeBeatOk('upload', 181, 0.5, t)).toBe(false);
+    expect(themeBeatOk('upload', 241, 0.5, t)).toBe(false);
+    expect(themeBeatOk('upload', 222.22, 0.5, t)).toBe(true);
+    expect(themeBeatOk('upload', 240, 0.5, t)).toBe(true);
     expect(themeBeatOk('upload', 120, -0.1, t)).toBe(false);
     expect(themeBeatOk('upload', 120, 361, t)).toBe(false);
     expect(themeBeatOk('upload', Number.NaN, 0, t)).toBe(false);

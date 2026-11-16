@@ -4,6 +4,9 @@ import { startMetronome } from './metronome';
 import {
   halveOrDouble,
   nudgeBpm,
+  fmtBpm,
+  normaliseOffset,
+  parseBpmInput,
   nudgeOffset,
   offsetFromTaps,
   tapError,
@@ -21,7 +24,7 @@ import {
 } from '../data/songFile';
 import { SETTINGS, type StoredSong } from '../data/store';
 import { CLICK_TRACK, createHouseTrackSource, createLocalTrackSource, type TrackInfo } from '../data/tracks';
-import { button, labelStrip, letterTiles, tapeNote, tornNote } from '../ui/kit/kit';
+import { button, labelStrip, letterTiles, tapeNote, textInput, tornNote } from '../ui/kit/kit';
 import { loadTheme, playTheme, withBeat, ThemeError, type LoadedTheme, type ThemeDeps } from './theme';
 
 export interface ThemePickerOptions extends ThemeDeps {
@@ -55,10 +58,6 @@ function h<K extends keyof HTMLElementTagNameMap>(
 function tid<T extends HTMLElement>(n: T, id: string): T {
   n.dataset.testid = id;
   return n;
-}
-
-function fmtBpm(bpm: number): string {
-  return bpm.toFixed(1);
 }
 
 function fmtOffset(sec: number): string {
@@ -127,7 +126,11 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
       input.click();
     },
   });
-  const limits = h('span', 'tp-limits', 'MP3, OGG, WAV or M4A, up to 10 MB and six minutes.');
+  const limits = h(
+    'span',
+    'tp-limits',
+    `MP3, OGG, WAV or M4A, up to 10 MB and six minutes. Tempos from ${tunables.minBpm} to ${tunables.maxBpm} BPM.`,
+  );
   dropZone.append(dropText, uploadBtn, limits, input);
   const privacy = tapeNote('Your song stays on this device. It is sent only to the friend in your room.', {
     rotate: -1,
@@ -164,17 +167,35 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
   const bpmButtons = [
     nudgeBtn('-1', 'bpm-minus-1', 'Slower by 1', () => nudge((s) => nudgeBpm(s, -1, tunables))),
     nudgeBtn('-0.1', 'bpm-minus-01', 'Slower by 0.1', () => nudge((s) => nudgeBpm(s, -0.1, tunables))),
+    nudgeBtn('-0.01', 'bpm-minus-001', 'Slower by 0.01', () => nudge((s) => nudgeBpm(s, -0.01, tunables))),
   ];
   const bpmButtonsAfter = [
+    nudgeBtn('+0.01', 'bpm-plus-001', 'Faster by 0.01', () => nudge((s) => nudgeBpm(s, 0.01, tunables))),
     nudgeBtn('+0.1', 'bpm-plus-01', 'Faster by 0.1', () => nudge((s) => nudgeBpm(s, 0.1, tunables))),
     nudgeBtn('+1', 'bpm-plus-1', 'Faster by 1', () => nudge((s) => nudgeBpm(s, 1, tunables))),
   ];
-  const halfBtn = button('Half', {
+  const bpmField = textInput({
+    label: 'TYPE A TEMPO',
+    placeholder: `${tunables.minBpm} to ${tunables.maxBpm}`,
+    maxLength: 9,
+    testId: 'bpm-input',
+  });
+  bpmField.input.inputMode = 'decimal';
+  bpmField.input.setAttribute('aria-label', 'Type a tempo in BPM');
+  const bpmSet = button('Set', {
+    variant: 'small',
+    testId: 'bpm-set',
+    onClick: () => applyTypedBpm(),
+  });
+  bpmField.input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') applyTypedBpm();
+  });
+  const halfBtn = button('Half tempo', {
     variant: 'small',
     testId: 'half',
     onClick: () => nudge((s) => halveOrDouble(s, 0.5, tunables)),
   });
-  const doubleBtn = button('Double', {
+  const doubleBtn = button('Double tempo', {
     variant: 'small',
     testId: 'double',
     onClick: () => nudge((s) => halveOrDouble(s, 2, tunables)),
@@ -186,7 +207,9 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
   bpmLabelRow.append(h('span', 'tp-label', 'TEMPO WE HEARD'), bpmHalfDouble);
   const bpmControls = h('div', 'tp-group-row');
   bpmControls.append(...bpmButtons, bpmValue, h('span', 'tp-unit', 'BPM'), ...bpmButtonsAfter);
-  bpmGroup.append(bpmLabelRow, bpmControls);
+  const bpmTyped = h('div', 'tp-group-row');
+  bpmTyped.append(bpmField.root, bpmSet);
+  bpmGroup.append(bpmLabelRow, bpmControls, bpmTyped);
   bpmRow.append(bpmGroup);
 
   const offsetButtons = [
@@ -370,6 +393,19 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
     if (preview?.kind === 'click') void startFromStart('click');
   }
 
+  function applyTypedBpm(): void {
+    const info = selectedInfo();
+    if (!editable(info)) return;
+    const bpm = parseBpmInput(bpmField.input.value, tunables.minBpm, tunables.maxBpm);
+    if (bpm === null) {
+      setMessage(`Type a tempo from ${tunables.minBpm} to ${tunables.maxBpm}, such as 222.22.`);
+      return;
+    }
+    setMessage(null);
+    bpmField.input.value = '';
+    nudge((s) => ({ bpm, firstBeatOffset: normaliseOffset(s.firstBeatOffset, bpm) }));
+  }
+
   function nudge(f: (s: BeatSetting) => BeatSetting): void {
     const info = selectedInfo();
     if (!editable(info)) return;
@@ -441,6 +477,8 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
     for (const b of [
       ...bpmButtons,
       ...bpmButtonsAfter,
+      bpmField.input,
+      bpmSet,
       ...offsetButtons,
       ...offsetButtonsAfter,
       halfBtn,
@@ -503,7 +541,7 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
   }
 
   function infoLine(info: TrackInfo): string {
-    return `${Math.round(info.bpm * 10) / 10} BPM`;
+    return `${fmtBpm(info.bpm)} BPM`;
   }
 
   function row(info: TrackInfo): HTMLElement {

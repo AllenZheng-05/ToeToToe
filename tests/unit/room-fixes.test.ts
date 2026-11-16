@@ -331,6 +331,28 @@ describe('what the other player sends', () => {
     expect(r.guest.room.theme?.id).toBe('u');
   });
 
+  it('keeps a two-decimal tempo in a theme offer and in the start message', () => {
+    const r = rig();
+    r.run(0.5);
+    r.host.transport.send({
+      t: 'theme',
+      theme: { source: 'upload', id: 'fast', title: 'Fast', hash: 'h', bpm: 222.22, firstBeatOffset: 0.1 },
+    });
+    r.run(0.2);
+    expect(r.guest.room.theme?.bpm).toBe(222.22);
+    r.host.room.setTheme({
+      source: 'upload',
+      id: 'fast',
+      title: 'Fast',
+      hash: 'h',
+      bpm: 222.22,
+      firstBeatOffset: 0.1,
+    });
+    startMatch(r);
+    expect(r.host.starts[0]?.grid.bpm).toBe(222.22);
+    expect(r.guest.starts[0]?.grid.bpm).toBe(222.22);
+  });
+
   it('refuses a start with a bad first phrase, tempo or attacker, and accepts a good one', () => {
     const r = rig();
     r.run(1.5);

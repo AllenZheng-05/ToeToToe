@@ -41,7 +41,7 @@ Idea approved; every number is a starting value. Put them all in the tunables ob
 
 - The song's tempo drives everything. House tracks carry their tempo in a manifest; uploaded songs get one in the battle theme screen (see "Songs" below).
 - A **phrase** is four beats. Strikes snap to half-beats, so a phrase has eight slots.
-- If a song's tempo is outside 80 to 180 BPM, halve or double it until it fits.
+- If a song's tempo is outside 80 to 240 BPM, halve or double it until it fits.
 - A match starts with a one-phrase count-in.
 
 ### The loop

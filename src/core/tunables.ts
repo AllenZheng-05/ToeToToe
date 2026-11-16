@@ -2,7 +2,7 @@ import type { Tunables } from './types';
 
 export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
   minBpm: 80,
-  maxBpm: 180,
+  maxBpm: 240,
   beatsPerPhrase: 4,
   slotsPerBeat: 2,
   countInPhrases: 1,

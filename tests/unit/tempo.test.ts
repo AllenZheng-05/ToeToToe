@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectBeat,
+  fmtBpm,
+  parseBpmInput,
   halveOrDouble,
   nudgeBpm,
   nudgeOffset,
@@ -11,7 +13,7 @@ import {
 } from '../../src/audio/tempo';
 import { createTunables } from '../../src/core/tunables';
 
-const t = createTunables(); // 80..180
+const t = createTunables(); // 80..240
 const s120 = { bpm: 120, firstBeatOffset: 0.1 }; // beat 0.5 s
 
 function taps(bpm: number, n: number, start = 0, jitter: readonly number[] = [0]): number[] {
@@ -30,12 +32,14 @@ describe('normaliseOffset', () => {
 });
 
 describe('nudgeBpm', () => {
-  it('nudges and rounds to 0.1', () => {
+  it('nudges and rounds to 0.01', () => {
     expect(nudgeBpm(s120, 0.1, t).bpm).toBe(120.1);
     expect(nudgeBpm(s120, -1, t).bpm).toBe(119);
+    expect(nudgeBpm({ bpm: 222.22, firstBeatOffset: 0 }, 0.01, t).bpm).toBe(222.23);
+    expect(nudgeBpm({ bpm: 222.22, firstBeatOffset: 0 }, -0.01, t).bpm).toBe(222.21);
   });
   it('clamps at the range limits', () => {
-    expect(nudgeBpm({ bpm: 180, firstBeatOffset: 0 }, 1, t).bpm).toBe(180);
+    expect(nudgeBpm({ bpm: 240, firstBeatOffset: 0 }, 1, t).bpm).toBe(240);
     expect(nudgeBpm({ bpm: 80, firstBeatOffset: 0 }, -1, t).bpm).toBe(80);
   });
   it('keeps the offset inside the new beat', () => {
@@ -58,9 +62,11 @@ describe('halveOrDouble', () => {
   it('changes tempo when it stays in range', () => {
     expect(halveOrDouble({ bpm: 90, firstBeatOffset: 0.1 }, 2, t).bpm).toBe(180);
     expect(halveOrDouble({ bpm: 160, firstBeatOffset: 0.1 }, 0.5, t).bpm).toBe(80);
+    expect(halveOrDouble({ bpm: 111.11, firstBeatOffset: 0.1 }, 2, t).bpm).toBe(222.22);
+    expect(halveOrDouble({ bpm: 120, firstBeatOffset: 0.1 }, 2, t).bpm).toBe(240);
   });
   it('is unchanged when out of range', () => {
-    const a = { bpm: 120, firstBeatOffset: 0.1 };
+    const a = { bpm: 130, firstBeatOffset: 0.1 };
     expect(halveOrDouble(a, 2, t)).toEqual(a);
     expect(halveOrDouble(a, 0.5, t)).toEqual(a);
   });
@@ -159,5 +165,24 @@ describe('detectBeat failure path', () => {
     const noise = new Float32Array(1000).fill(0.5);
     const r = await detectBeat(fake(noise), t);
     expect(r.detected).toBe(false);
+  });
+});
+
+describe('two-decimal tempos', () => {
+  it('formats up to two decimals without trailing zeros', () => {
+    expect(fmtBpm(222.22)).toBe('222.22');
+    expect(fmtBpm(120)).toBe('120');
+    expect(fmtBpm(120.5)).toBe('120.5');
+    expect(fmtBpm(99.999)).toBe('100');
+  });
+  it('parses a typed tempo and validates the range', () => {
+    expect(parseBpmInput('222.22', 80, 240)).toBe(222.22);
+    expect(parseBpmInput(' 100 BPM ', 80, 240)).toBe(100);
+    expect(parseBpmInput('240', 80, 240)).toBe(240);
+    expect(parseBpmInput('240.01', 80, 240)).toBeNull();
+    expect(parseBpmInput('79.99', 80, 240)).toBeNull();
+    expect(parseBpmInput('1e2', 80, 240)).toBeNull();
+    expect(parseBpmInput('12.345', 80, 240)).toBeNull();
+    expect(parseBpmInput('', 80, 240)).toBeNull();
   });
 });

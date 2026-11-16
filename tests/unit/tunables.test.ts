@@ -5,7 +5,7 @@ describe('tunables', () => {
   it('defaults match the spec', () => {
     expect({ ...DEFAULT_TUNABLES }).toEqual({
       minBpm: 80,
-      maxBpm: 180,
+      maxBpm: 240,
       beatsPerPhrase: 4,
       slotsPerBeat: 2,
       countInPhrases: 1,

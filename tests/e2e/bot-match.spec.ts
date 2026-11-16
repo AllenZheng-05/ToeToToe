@@ -99,6 +99,26 @@ test('a bot match runs to victory unattended', async ({ page }) => {
   expect(result?.phase).toBe('matchOver');
   expect(result?.actWins).toContain(2);
 });
+test('a bot match at 222.22 BPM keeps up and completes an act', async ({ page }) => {
+  await page.goto(`/?debug=1&bot=1&autoplay=1&bpm=222.22&seed=3&botAccuracy=0.9&tunables=${SHORT}`);
+  await startBot(page);
+  await expect.poll(() => page.evaluate(() => window.__ttt?.grid?.bpm)).toBe(222.22);
+  await expect
+    .poll(() => page.evaluate(() => window.__ttt?.events.some((e) => e.type === 'actOver') ?? false), {
+      timeout: 90_000,
+    })
+    .toBe(true);
+  const grades = await page.evaluate(() => {
+    const counts: Record<string, number> = {};
+    for (const e of window.__ttt?.events ?? []) {
+      if (e.type === 'judged') counts[e.grade] = (counts[e.grade] ?? 0) + 1;
+    }
+    return counts;
+  });
+  expect(Object.values(grades).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__ttt?.grid?.bpm)).toBe(222.22);
+});
+
 test('a human click plants a strike', async ({ page }) => {
   await page.goto('/?debug=1&bot=1&bpm=120&botAccuracy=1');
   await startBot(page);

@@ -129,6 +129,6 @@ export function transferBars(
 /** "Placeholder: March (100), 100 BPM". */
 export function themeText(offer: { title: string; bpm: number } | null): string {
   if (!offer) return 'Loading…';
-  const bpm = Math.round(offer.bpm * 10) / 10;
+  const bpm = Math.round(offer.bpm * 100) / 100;
   return `${offer.title}, ${bpm} BPM`;
 }

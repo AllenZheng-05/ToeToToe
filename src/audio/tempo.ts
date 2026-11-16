@@ -2,7 +2,7 @@ import { foldBpm } from '../core/beat';
 import type { Tunables } from '../core/types';
 
 export interface BeatSetting {
-  /** Folded into the tunables' range, rounded to 0.1. */
+  /** Folded into the tunables' range, rounded to 0.01. */
   bpm: number;
   /** Seconds from the start of the file to a beat, 0 <= offset < one beat. */
   firstBeatOffset: number;
@@ -15,7 +15,20 @@ const MIN_TAPS = 4;
 /** A tap interval this far (as a fraction) from the median counts as uneven. */
 const MAX_INTERVAL_DEVIATION = 0.35;
 
-const round1 = (n: number): number => Math.round(n * 10) / 10;
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Up to two decimals, no trailing zeros: 222.22, 120.5, 100. */
+export function fmtBpm(bpm: number): string {
+  return String(Math.round(bpm * 100) / 100);
+}
+
+/** Parses typed tempo text ("222.22") into [minBpm, maxBpm] with two decimals; null if it is not a number in range. */
+export function parseBpmInput(text: string, min: number, max: number): number | null {
+  const s = text.trim().replace(/\s*bpm$/i, '');
+  if (!/^\d{1,3}(\.\d{0,2})?$/.test(s)) return null;
+  const n = Math.round(Number(s) * 100) / 100;
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+}
 
 /** Pure. Normalises any offset into [0, beat). */
 export function normaliseOffset(offsetSec: number, bpm: number): number {
@@ -45,12 +58,17 @@ export async function detectBeat(
     if (silent(buffer)) return failed;
     // Loaded on demand: the library spins up a worker when imported.
     const { guess } = await import('web-audio-beat-detector');
-    const { bpm: guessed, offset } = await guess(buffer, {
+    const found = await guess(buffer, {
       minTempo: t.minBpm,
       maxTempo: t.maxBpm,
     });
+    const { offset } = found;
+    // The library rounds `bpm` to a whole number but also returns the unrounded `tempo`
+    // (untyped); keep that for two-decimal precision.
+    const exact = (found as { tempo?: unknown }).tempo;
+    const guessed = typeof exact === 'number' && Number.isFinite(exact) && exact > 0 ? exact : found.bpm;
     if (!Number.isFinite(guessed) || guessed <= 0) return failed;
-    const bpm = round1(foldBpm(guessed, t));
+    const bpm = round2(foldBpm(guessed, t));
     return {
       bpm,
       firstBeatOffset: normaliseOffset(Number.isFinite(offset) ? offset : 0, bpm),
@@ -63,7 +81,7 @@ export async function detectBeat(
 
 /** Pure. Change the tempo by `deltaBpm`, keep it inside the tunables' range, re-normalise the offset. */
 export function nudgeBpm(s: BeatSetting, deltaBpm: number, t: Tunables): BeatSetting {
-  const bpm = round1(Math.min(t.maxBpm, Math.max(t.minBpm, s.bpm + deltaBpm)));
+  const bpm = round2(Math.min(t.maxBpm, Math.max(t.minBpm, s.bpm + deltaBpm)));
   return { bpm, firstBeatOffset: normaliseOffset(s.firstBeatOffset, bpm) };
 }
 
@@ -77,7 +95,7 @@ export function nudgeOffset(s: BeatSetting, deltaMs: number): BeatSetting {
 
 /** Pure. Halve or double the tempo if the result stays in range; otherwise unchanged. */
 export function halveOrDouble(s: BeatSetting, factor: 0.5 | 2, t: Tunables): BeatSetting {
-  const bpm = round1(s.bpm * factor);
+  const bpm = round2(s.bpm * factor);
   if (bpm < t.minBpm || bpm > t.maxBpm) return s;
   return { bpm, firstBeatOffset: normaliseOffset(s.firstBeatOffset, bpm) };
 }
@@ -110,7 +128,7 @@ export function tempoFromTaps(taps: readonly number[], t: Tunables): number | nu
     num += (i - meanX) * (y - meanY);
     den += (i - meanX) ** 2;
   });
-  return round1(foldBpm(60 / (num / den), t));
+  return round2(foldBpm(60 / (num / den), t));
 }
 
 /** Pure. The first-beat offset that best fits taps made along to the song (circular mean of phases). */
