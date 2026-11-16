@@ -198,7 +198,18 @@ export class MarksView {
     if (view.phase === 'attack' && view.strikes.length > 0) {
       const pts = view.strikes.map((s) => playToDesign(s.x, s.y));
       this.drawLine(pts, 'strike', scale);
+      // The defender-to-be sees a strike turn into a target, ring closing, as soon as its beat in the
+      // coming phrase is within the ring lead, so early slots get the same warning as late ones.
+      const slotSec = 60 / bpm / tunables.slotsPerBeat;
+      const slotsPerPhrase = tunables.beatsPerPhrase * tunables.slotsPerBeat;
+      const leadSec = (opts.ringLeadBeats ?? tunables.ringLeadBeats) * (60 / bpm);
       pts.forEach((p, i) => {
+        const strike = view.strikes[i] as DuelView['strikes'][number];
+        const timeToHit = (slotsPerPhrase - view.slotPosition + strike.slot) * slotSec;
+        if (!view.localActive && timeToHit <= leadSec) {
+          this.drawTarget({ index: i, strike, timeToHit, result: null }, p, leadSec, scale, sprite);
+          return;
+        }
         const newest = i === pts.length - 1;
         const tex = (newest ? this.textures.newest : this.textures.strike)[clampNum(i)] as Texture;
         sprite(tex, p.x, p.y, 1);
