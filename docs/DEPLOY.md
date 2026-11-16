@@ -4,7 +4,7 @@ Target: `https://toetotoe.allenzheng.com`, a static site (the `dist/` folder fro
 
 Facts: `allenzheng.com` is owned by Allen and its DNS is hosted on Cloudflare (confirmed 16 Nov 2026). The repo is `AllenZheng-05/ToeToToe`. Nothing has been pushed or deployed. pnpm 10 (pinned by `packageManager` in `package.json`), Node 22, build command `pnpm build`, output directory `dist`.
 
-Files in this repo that the host reads: `public/_headers` (security and cache headers) and `public/_redirects` (single-page fallback). Vite copies everything in `public/` into `dist/`.
+Files in this repo that the host reads: `public/_headers` (security and cache headers) and `wrangler.jsonc` (Workers static assets: output folder and single-page fallback). There is no `_redirects` file: the rule `/* /index.html 200` makes a Workers deploy fail as an infinite loop, Workers does the fallback through `not_found_handling`, and Pages falls back to `index.html` on its own when there is no `404.html`. Vite copies everything in `public/` into `dist/`.
 
 Dashboard wording changes often. Anything marked "check against the current dashboard" may be named differently.
 
@@ -69,7 +69,7 @@ Every branch and pull request other than `main` gets its own address `https://<h
 
 ## 3. Cloudflare Workers static assets (alternative)
 
-Cloudflare now steers new projects toward Workers with static assets, and the Pages option may be tucked away. The equivalent is a Workers project connected to the same GitHub repo, with build command `pnpm build` and a deploy configuration like this in a `wrangler.jsonc` at the repo root (this file is not in the repo; add it only if you go this way):
+Cloudflare now steers new projects toward Workers with static assets, and the Pages option may be tucked away. The equivalent is a Workers project connected to the same GitHub repo, with build command `pnpm build` and a deploy configuration like this in a `wrangler.jsonc` at the repo root (this file is in the repo; `name` must match the Worker's name in the dashboard):
 
 ```jsonc
 {

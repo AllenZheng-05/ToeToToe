@@ -1,0 +1,10 @@
+{
+  // Cloudflare Workers static assets: serves dist/ and answers unknown paths (room links) with index.html.
+  // "name" must match the Worker's name in the Cloudflare dashboard.
+  "name": "toetotoe",
+  "compatibility_date": "2026-11-16",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
