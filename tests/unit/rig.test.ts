@@ -1,20 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import type { Point } from '../../src/puppet/parts';
+import { PARTS, type Point } from '../../src/puppet/parts';
 import { DEFAULT_RIG, solveRig, type Placement, type RigPose } from '../../src/puppet/rig';
 
 const BASE: Point = { x: 330, y: 660 };
 const CFG = DEFAULT_RIG;
+// Each part is drawn with its own axis tilted by a fixed angle; the head and sword share one line.
+const HEAD_ROT_OFFSET = Math.atan2(
+  PARTS.head.mouth.y - PARTS.head.pin.y,
+  PARTS.head.mouth.x - PARTS.head.pin.x,
+);
+const SWORD_ROT_OFFSET = Math.atan2(
+  PARTS.sword.tip.y - PARTS.sword.handle.y,
+  PARTS.sword.tip.x - PARTS.sword.handle.x,
+);
 const REACH = CFG.headLength + CFG.swordLength;
 const BODY_CAP = CFG.maxSegments * CFG.segmentLength * CFG.maxStretch;
-/** Shortest body that still has to respect minStretch (below this the body folds, compressed). */
-const FOLD_ARC = CFG.minSegments * CFG.segmentLength * CFG.minStretch;
-
 function grid(facing: 1 | -1): Point[] {
   const pts: Point[] = [];
   for (let x = 60; x <= 1240; x += 100) {
     for (let y = 40; y <= 700; y += 80) pts.push({ x: BASE.x + facing * (x - 330), y });
   }
   return pts;
+}
+
+/** Tips over the whole play area (x 200..1080, y 163..603), mirrored about the base for facing -1. */
+function playGrid(facing: 1 | -1): Point[] {
+  const pts: Point[] = [];
+  for (let x = 200; x <= 1080; x += 20) {
+    for (let y = 163; y <= 603; y += 20) pts.push({ x: BASE.x + facing * (x - BASE.x), y });
+  }
+  return pts;
+}
+
+/** The rotation the head should have for the sword's direction (they share the sword line). */
+function expectedHeadRotation(pose: RigPose, facing: 1 | -1): number {
+  return pose.sword.rotation + facing * (SWORD_ROT_OFFSET - HEAD_ROT_OFFSET);
+}
+
+/** The sword line's angle from forward in the left-hand frame, radians. */
+function swordAngle(pose: RigPose, facing: 1 | -1): number {
+  const theta = facing * pose.sword.rotation + SWORD_ROT_OFFSET;
+  return Math.atan2(Math.sin(theta), Math.cos(theta));
 }
 
 function placementValues(p: Placement): number[] {
@@ -46,11 +72,6 @@ function segmentEnd(s: Placement): Point {
 
 function dist(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-/** Tips where the head pin is far enough from the base that the body does not fold. */
-function bodyChord(tip: Point, facing: 1 | -1): number {
-  return Math.hypot((tip.x - BASE.x) * facing, tip.y - BASE.y) - REACH;
 }
 
 describe('solveRig', () => {
@@ -109,11 +130,11 @@ describe('solveRig', () => {
         }
       });
 
-      it('keeps stretch within limits when reachable and not folded', () => {
+      it('keeps stretch within limits when reachable', () => {
         let checked = 0;
         for (const tip of tips) {
           if (dist(tip, BASE) > BODY_CAP + REACH) continue;
-          if (bodyChord(tip, facing) < FOLD_ARC) continue;
+          if (tip.y > BASE.y) continue; // below the ledge: not a place the pointer can be
           const pose = solveRig(BASE, tip, facing);
           for (const s of pose.segments) {
             const stretch = Math.abs(s.scaleX);
@@ -126,12 +147,12 @@ describe('solveRig', () => {
         expect(checked).toBeGreaterThan(20);
       });
 
-      it('folds with the minimum segments when the head pin lands on the base', () => {
-        // Head and sword are one rigid line; a tip exactly that far out leaves no body to span.
-        const pose = solveRig(BASE, { x: BASE.x + facing * REACH, y: BASE.y }, facing);
-        expect(pose.segmentCount).toBe(CFG.minSegments);
+      it('stands on a short body when idle', () => {
+        const rest = { x: BASE.x + facing * 350, y: BASE.y - CFG.restHeight };
+        const pose = solveRig(BASE, rest, facing);
+        expect(pose.segmentCount).toBeLessThanOrEqual(CFG.minSegments + 1);
         for (const v of allValues(pose)) expect(Number.isFinite(v)).toBe(true);
-        expect(dist(pose.tip, { x: BASE.x + facing * REACH, y: BASE.y })).toBeLessThan(0.01);
+        expect(dist(pose.tip, rest)).toBeLessThan(0.01);
       });
 
       it('grows the segment count with distance', () => {
@@ -198,13 +219,19 @@ describe('solveRig', () => {
     }
     expect(changes).toBeLessThanOrEqual(4);
 
-    // With hysteresis the count differs from a memoryless solve at the same distance.
-    const d = REACH + 360;
-    const fresh = solveRig(BASE, { x: BASE.x + d, y: BASE.y - 100 }, 1);
-    const held = solveRig(BASE, { x: BASE.x + d, y: BASE.y - 100 }, 1, fresh.segmentCount + 1);
-    const heldStretch = held.segments.map((s) => Math.abs(s.scaleX));
-    expect(held.segmentCount).toBe(fresh.segmentCount + 1);
-    expect(Math.min(...heldStretch)).toBeGreaterThan(CFG.minStretch * 0.95);
+    // With hysteresis the count differs from a memoryless solve at the same distance: find a
+    // distance where the next count up is still within the stretch limits and gets kept.
+    let found = false;
+    for (let d = REACH + 300; d <= REACH + 460 && !found; d += 1) {
+      const tip = { x: BASE.x + d, y: BASE.y - 100 };
+      const fresh = solveRig(BASE, tip, 1);
+      const held = solveRig(BASE, tip, 1, fresh.segmentCount + 1);
+      if (held.segmentCount !== fresh.segmentCount + 1) continue;
+      found = true;
+      const heldStretch = held.segments.map((s) => Math.abs(s.scaleX));
+      expect(Math.min(...heldStretch)).toBeGreaterThan(CFG.minStretch * 0.95);
+    }
+    expect(found).toBe(true);
   });
 
   it('moves every pin only a few px for a 1 px tip move with the same count', () => {
@@ -212,12 +239,12 @@ describe('solveRig', () => {
     let checked = 0;
     for (const tip of tips) {
       if (dist(tip, BASE) > BODY_CAP + REACH - 5) continue;
-      if (bodyChord(tip, 1) < FOLD_ARC) continue;
+      if (tip.y > BASE.y) continue;
       const a = solveRig(BASE, tip, 1);
       const b = solveRig(BASE, { x: tip.x + 0.7, y: tip.y + 0.7 }, 1, a.segmentCount);
       if (b.segmentCount !== a.segmentCount) continue;
       a.pins.forEach((p, i) => {
-        expect(dist(p, b.pins[i] as Point)).toBeLessThan(4);
+        expect(dist(p, b.pins[i] as Point)).toBeLessThan(6);
       });
       checked++;
     }
@@ -249,10 +276,66 @@ describe('solveRig', () => {
     }
   });
 
-  it('never points the sword back into its own body', () => {
-    for (const tip of grid(1)) {
-      const pose = solveRig(BASE, tip, 1);
-      expect(Math.cos(pose.sword.rotation)).toBeGreaterThan(0);
+  it('never points the sword back past the sword-angle limit', () => {
+    const limit = (CFG.maxSwordAngle * Math.PI) / 180;
+    for (const facing of [1, -1] as const) {
+      for (const tip of playGrid(facing)) {
+        const pose = solveRig(BASE, tip, facing);
+        expect(Math.abs(swordAngle(pose, facing))).toBeLessThanOrEqual(limit + 1e-6);
+        expect(Math.abs(pose.head.rotation - expectedHeadRotation(pose, facing))).toBeLessThan(1e-6);
+      }
+    }
+  });
+
+  it('has a near-horizontal sword and a head near the rest height when idle', () => {
+    for (const facing of [1, -1] as const) {
+      const rest = BASE.y - CFG.restHeight;
+      const pose = solveRig(BASE, { x: BASE.x + facing * 350, y: rest }, facing);
+      const degrees = Math.abs(swordAngle(pose, facing)) * (180 / Math.PI);
+      expect(degrees).toBeLessThan(10);
+      expect(Math.abs(pose.head.y - rest)).toBeLessThan(40);
+    }
+  });
+
+  it('keeps a visible body and a high head when the tip is close to the base (above the ledge)', () => {
+    for (const facing of [1, -1] as const) {
+      for (let a = 180; a <= 360; a += 15) {
+        for (const r of [0, 40, 90, 140]) {
+          const tip = {
+            x: BASE.x + facing * r * Math.cos((a * Math.PI) / 180),
+            y: BASE.y + r * Math.sin((a * Math.PI) / 180),
+          };
+          const pose = solveRig(BASE, tip, facing);
+          expect(dist(pose.tip, tip)).toBeLessThan(0.01);
+          expect(BASE.y - pose.head.y).toBeGreaterThanOrEqual(CFG.minHeadHeight - 0.01);
+          expect(pose.segmentCount).toBeGreaterThanOrEqual(CFG.minSegments);
+          for (const s of pose.segments) expect(Math.abs(s.scaleX)).toBeGreaterThan(CFG.minStretch * 0.95);
+        }
+      }
+    }
+  });
+
+  it('leaves the base within 35 degrees of straight up', () => {
+    for (const facing of [1, -1] as const) {
+      for (const tip of playGrid(facing)) {
+        const first = solveRig(BASE, tip, facing).segments[0] as Placement;
+        const end = segmentEnd(first);
+        const dx = end.x - first.x;
+        const dy = end.y - first.y;
+        const fromUp = Math.atan2(Math.abs(dx), -dy) * (180 / Math.PI);
+        expect(fromUp).toBeLessThanOrEqual(35);
+      }
+    }
+  });
+
+  it('reaches every tip over the play area with no pin below the base', () => {
+    for (const facing of [1, -1] as const) {
+      for (const tip of playGrid(facing)) {
+        const pose = solveRig(BASE, tip, facing);
+        expect(dist(pose.tip, tip)).toBeLessThan(0.01);
+        for (const p of pose.pins) expect(p.y).toBeLessThanOrEqual(BASE.y + 0.01);
+        expect(pose.head.y).toBeLessThanOrEqual(BASE.y - CFG.minHeadHeight + 0.01);
+      }
     }
   });
 });

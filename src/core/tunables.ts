@@ -12,8 +12,8 @@ export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
   goodWindowMs: 100,
   missWindowMs: 200,
   inputGraceMs: 60,
-  targetRadius: 0.06,
-  targetRadiusTouch: 0.085,
+  targetRadius: 0.05,
+  targetRadiusTouch: 0.075,
   playAreaAspect: 2,
 
   startHealth: 100,

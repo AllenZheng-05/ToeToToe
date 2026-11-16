@@ -13,6 +13,21 @@ export interface RigConfig {
   swordLength: number;
   /** How much the body bows sideways: the bulge at mid-body, as a fraction of the body's chord. */
   bend: number;
+  /** Where the head pin rests when nothing pulls it: this far behind the base (negative: in front), and this high. */
+  restBack: number;
+  restHeight: number;
+  /** The rest point rises by up to this much as the tip gets farther from the base ... */
+  stretchLift: number;
+  /** ... reaching the full rise this far beyond the head-and-sword length. */
+  stretchLiftDist: number;
+  /** How far the body's last stretch turns from the chord toward forward, degrees. */
+  neckForward: number;
+  /** The head pin is never lower than this above the base (the ledge line). */
+  minHeadHeight: number;
+  /** Largest angle between the sword line and forward, degrees. */
+  maxSwordAngle: number;
+  /** Lean of the body's first segment away from the opponent, degrees from straight up. */
+  baseLean: number;
 }
 
 const HEAD_VEC = {
@@ -33,6 +48,14 @@ export const DEFAULT_RIG: RigConfig = {
   headLength: Math.hypot(HEAD_VEC.x, HEAD_VEC.y) * PART_SCALE.head,
   swordLength: Math.hypot(SWORD_VEC.x, SWORD_VEC.y) * PART_SCALE.sword,
   bend: 0.15,
+  restBack: -100,
+  restHeight: 190,
+  stretchLift: 260,
+  stretchLiftDist: 500,
+  neckForward: 25,
+  minHeadHeight: 120,
+  maxSwordAngle: 100,
+  baseLean: 6,
 };
 
 /**
@@ -62,12 +85,6 @@ export interface RigPose {
 }
 
 const SAMPLES = 48;
-/** Direction the sword drifts to when the tip is very close to the base (up and forward). */
-const REST_DIR = { x: 1, y: -0.35 };
-/** Smallest forward component of the sword direction, so it never points back into the body. */
-const MIN_FORWARD = 0.1;
-/** Chord length over which the bow direction eases from "away from opponent" to the normal. */
-const BOW_EASE = 60;
 
 const HEAD_ANGLE = Math.atan2(HEAD_VEC.y, HEAD_VEC.x);
 const SWORD_ANGLE = Math.atan2(SWORD_VEC.y, SWORD_VEC.x);
@@ -82,6 +99,31 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
+/** Cubic Bezier through p0..p3, sampled into a table of points and cumulative arc lengths. */
+function sampleCurve(p0: Point, p1: Point, p2: Point, p3: Point, table: Point[], cum: number[]): number {
+  table.length = 0;
+  cum.length = 0;
+  for (let i = 0; i <= SAMPLES; i++) {
+    const t = i / SAMPLES;
+    const u = 1 - t;
+    const a = u * u * u;
+    const b = 3 * u * u * t;
+    const c = 3 * u * t * t;
+    const d = t * t * t;
+    table.push({
+      x: a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+      y: a * p0.y + b * p1.y + c * p2.y + d * p3.y,
+    });
+    if (i === 0) cum.push(0);
+    else {
+      const q = table[i - 1] as Point;
+      const r = table[i] as Point;
+      cum.push((cum[i - 1] as number) + Math.hypot(r.x - q.x, r.y - q.y));
+    }
+  }
+  return cum[SAMPLES] as number;
+}
+
 /**
  * Pose a puppet whose base is fixed at `base` (behind the ledge) so its sword tip is at `tip`.
  * `facing` is 1 for the left-hand puppet (faces right) and -1 for the right-hand one.
@@ -89,11 +131,15 @@ function clamp(v: number, lo: number, hi: number): number {
  * within [minStretch, maxStretch].
  *
  * The solve happens in the left-hand puppet's frame (base at the origin, opponent to the +x side)
- * and is mirrored for facing -1. The head and sword form one rigid line (head pin to tip) of
- * length headLength + swordLength; the body is a quadratic Bezier from the base to the head pin,
- * bowed away from the opponent and cut into equal-length segments. When the tip is nearer the
- * base than that rigid line the head pin lands behind the base and the body folds (minimum
- * segments, compressed). Deterministic and continuous in `tip` for a fixed segment count.
+ * and is mirrored for facing -1. Head and sword are one rigid line of length headLength +
+ * swordLength ending at the tip. The head pin sits on the circle of that radius around the tip, at
+ * the point nearest a rest point above the base, so the sword is level when the tip is out in
+ * front at head height, tilts as the tip rises or falls, and the head leans back when the tip
+ * comes near. The head pin is then kept above the ledge, inside the body's reach, and the sword
+ * line within maxSwordAngle of forward. The body is a cubic Bezier from the base (leaving upward,
+ * leaning away from the opponent) to the head pin, bowing more when the pin is close so the
+ * segments never compress; it is cut into equal-arc segments. Deterministic and continuous in
+ * `tip` for a fixed segment count.
  */
 export function solveRig(
   base: Point,
@@ -115,46 +161,141 @@ export function solveRig(
     tx *= maxReach / dist;
     ty *= maxReach / dist;
   }
-  const d = Math.min(dist, maxReach);
 
-  // Sword direction: along base -> tip, easing to a forward rest direction near the base.
-  const toTip = unit(tx, ty, REST_DIR);
-  const w = clamp(d / reach, 0, 1);
-  const rest = unit(REST_DIR.x, REST_DIR.y, { x: 1, y: 0 });
-  const dir = unit(
-    Math.max(w * toTip.x + (1 - w) * rest.x, MIN_FORWARD),
-    w * toTip.y + (1 - w) * rest.y,
-    rest,
-  );
-  const theta = Math.atan2(dir.y, dir.x);
+  // Head pin: on the circle of radius `reach` around the tip, nearest the rest point.
+  const liftT = clamp((Math.hypot(tx, ty) - reach) / cfg.stretchLiftDist, 0, 1);
+  const lift = cfg.stretchLift * liftT * liftT;
+  const rest = { x: -cfg.restBack, y: -cfg.restHeight - lift };
+  const toRest = unit(rest.x - tx, rest.y - ty, { x: -1, y: 0 });
+  let hx = tx + reach * toRest.x;
+  let hy = ty + reach * toRest.y;
 
-  const pin: Point = { x: tx - reach * dir.x, y: ty - reach * dir.y };
-
-  // Body curve: quadratic Bezier from the origin to the head pin.
-  const chord = Math.hypot(pin.x, pin.y);
-  const minArc = cfg.minSegments * cfg.segmentLength * cfg.minStretch;
-  const ramp = clamp((bodyCap - chord) / (0.15 * bodyCap), 0, 1);
-  const offset = 2 * cfg.bend * chord * ramp + minArc * Math.max(0, 1 - chord / minArc);
-  // Bow direction: perpendicular to the chord (up when the chord points right, left when it
-  // points up), easing to straight "away from the opponent" for very short chords.
-  const e = clamp(chord / BOW_EASE, 0, 1);
-  const away = { x: -1, y: 0 };
-  const perp = chord > 1e-9 ? { x: pin.y / chord, y: -pin.x / chord } : away;
-  const bow = unit(e * perp.x + (1 - e) * away.x, e * perp.y + (1 - e) * away.y, away);
-  const ctrl = { x: pin.x / 2 + bow.x * offset, y: pin.y / 2 + bow.y * offset };
-
-  const table: Point[] = [];
-  const cum: number[] = [0];
-  for (let i = 0; i <= SAMPLES; i++) {
-    const t = i / SAMPLES;
-    const b = 2 * t * (1 - t);
-    const c = t * t;
-    table.push({ x: b * ctrl.x + c * pin.x, y: b * ctrl.y + c * pin.y });
+  // Limits on the pin: above the ledge line, the sword line no more than maxSwordAngle from
+  // forward, the body neither folded up (chord at least minChord) nor beyond its reach.
+  const backLimit = -Math.cos((cfg.maxSwordAngle * Math.PI) / 180) * reach;
+  const topY = -cfg.minHeadHeight;
+  const minChord = cfg.minSegments * cfg.segmentLength * cfg.minStretch * 1.1;
+  const allowed = (x: number, y: number): boolean => {
+    const c = Math.hypot(x, y);
+    return y <= topY + 1e-6 && x <= tx + backLimit + 1e-6 && c >= minChord - 1e-6 && c <= bodyCap + 1e-6;
+  };
+  if (!allowed(hx, hy)) {
+    // Swing the sword line around the tip, as little as possible, to an allowed pin.
+    const theta0 = Math.atan2(ty - hy, tx - hx);
+    const step = Math.PI / 720;
+    let found = false;
+    for (let i = 1; i <= 1440 && !found; i++) {
+      for (const sign of [1, -1]) {
+        const a = theta0 + sign * i * step;
+        const x = tx - reach * Math.cos(a);
+        const y = ty - reach * Math.sin(a);
+        if (allowed(x, y)) {
+          hx = x;
+          hy = y;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) {
+      // Nothing satisfies every limit (the tip is at the edge of reach): keep the pin within reach.
+      const d = Math.hypot(tx, ty);
+      if (d > 1e-9 && Math.hypot(hx, hy) > bodyCap) {
+        const ux = tx / d;
+        const uy = ty / d;
+        const along = (bodyCap * bodyCap - reach * reach + d * d) / (2 * d);
+        const off = Math.sqrt(Math.max(0, bodyCap * bodyCap - along * along));
+        const c1 = { x: along * ux - off * uy, y: along * uy + off * ux };
+        const c2 = { x: along * ux + off * uy, y: along * uy - off * ux };
+        const near = Math.hypot(c1.x - hx, c1.y - hy) <= Math.hypot(c2.x - hx, c2.y - hy) ? c1 : c2;
+        hx = near.x;
+        hy = near.y;
+      }
+    }
   }
-  for (let i = 1; i <= SAMPLES; i++) {
-    const p0 = table[i - 1] as Point;
-    const p1 = table[i] as Point;
-    cum.push((cum[i - 1] as number) + Math.hypot(p1.x - p0.x, p1.y - p0.y));
+
+  const dir = unit(tx - hx, ty - hy, { x: 1, y: 0 });
+  const theta = Math.atan2(dir.y, dir.x);
+  const pin: Point = { x: hx, y: hy };
+
+  // Body: cubic Bezier from the origin, leaving upward (leaning back), arriving along the line
+  // from the base to the pin. Longer handles bow it more; raise them until it is long enough.
+  const chord = Math.hypot(pin.x, pin.y);
+  const lean = (cfg.baseLean * Math.PI) / 180;
+  const chordDir = unit(pin.x, pin.y, { x: 0, y: -1 });
+  const fwd = ((cfg.neckForward * Math.PI) / 180) * clamp((bodyCap - chord) / (0.15 * bodyCap), 0, 1);
+  // The body arrives turned toward forward (down, for a head to the right), like a neck bowing.
+  const t1 = unit(
+    chordDir.x * Math.cos(fwd) - chordDir.y * Math.sin(fwd),
+    chordDir.x * Math.sin(fwd) + chordDir.y * Math.cos(fwd),
+    { x: 1, y: 0 },
+  );
+  const minArc = cfg.minSegments * cfg.segmentLength * cfg.minStretch;
+  // At full stretch the body straightens along the chord instead of bowing.
+  const ramp = clamp((bodyCap - chord) / (0.15 * bodyCap), 0, 1);
+  const t0 = unit(ramp * -Math.sin(lean) + (1 - ramp) * t1.x, ramp * -Math.cos(lean) + (1 - ramp) * t1.y, {
+    x: 0,
+    y: -1,
+  });
+  const table: Point[] = [];
+  const cum: number[] = [];
+  const origin: Point = { x: 0, y: 0 };
+  const build = (k: number): number =>
+    sampleCurve(
+      origin,
+      { x: t0.x * 1.8 * k * chord, y: t0.y * 1.8 * k * chord },
+      { x: pin.x - t1.x * 0.6 * k * chord, y: pin.y - t1.y * 0.6 * k * chord },
+      pin,
+      table,
+      cum,
+    );
+  // Cut the current curve into n equal-arc pieces: the joints, from the origin to the pin.
+  const cutJoints = (count: number): Point[] => {
+    const arcLen = cum[SAMPLES] as number;
+    const out: Point[] = [origin];
+    let j = 0;
+    for (let i = 1; i < count; i++) {
+      const target = (arcLen * i) / count;
+      while (j < SAMPLES - 1 && (cum[j + 1] as number) < target) j++;
+      const c0 = cum[j] as number;
+      const c1 = cum[j + 1] as number;
+      const f = c1 > c0 ? (target - c0) / (c1 - c0) : 0;
+      const p0 = table[j] as Point;
+      const p1 = table[j + 1] as Point;
+      out.push({ x: p0.x + (p1.x - p0.x) * f, y: p0.y + (p1.y - p0.y) * f });
+    }
+    out.push(pin);
+    return out;
+  };
+  // The shortest piece's chord, over the rest length, for the count the curve would get.
+  const shortestPiece = (arcLen: number): number => {
+    const count = clamp(Math.round(arcLen / cfg.segmentLength), cfg.minSegments, cfg.maxSegments);
+    const js = cutJoints(count);
+    let m = Infinity;
+    for (let i = 1; i < js.length; i++) {
+      const a = js[i - 1] as Point;
+      const b = js[i] as Point;
+      m = Math.min(m, Math.hypot(b.x - a.x, b.y - a.y));
+    }
+    return m / cfg.segmentLength;
+  };
+  const enough = (k: number): boolean => {
+    const len = build(k);
+    return len >= minArc && shortestPiece(len) >= cfg.minStretch * 0.96;
+  };
+  const k0 = 0.1 + 0.3 * ramp;
+  if (!enough(k0)) {
+    // Bow more until the pieces are long enough (they shorten as the curve curls up).
+    let lo = k0;
+    let hi = k0 + 1.5;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (enough(mid)) hi = mid;
+      else lo = mid;
+    }
+    build(hi);
+  } else {
+    build(k0);
   }
   const arc = cum[SAMPLES] as number;
 
@@ -174,20 +315,7 @@ export function solveRig(
     n = clamp(Math.round(arc / cfg.segmentLength), cfg.minSegments, cfg.maxSegments);
   }
 
-  // Cut the curve into n equal-arc pieces.
-  const joints: Point[] = [{ x: 0, y: 0 }];
-  let k = 0;
-  for (let i = 1; i < n; i++) {
-    const target = (arc * i) / n;
-    while (k < SAMPLES - 1 && (cum[k + 1] as number) < target) k++;
-    const c0 = cum[k] as number;
-    const c1 = cum[k + 1] as number;
-    const f = c1 > c0 ? (target - c0) / (c1 - c0) : 0;
-    const p0 = table[k] as Point;
-    const p1 = table[k + 1] as Point;
-    joints.push({ x: p0.x + (p1.x - p0.x) * f, y: p0.y + (p1.y - p0.y) * f });
-  }
-  joints.push(pin);
+  const joints = cutJoints(n);
 
   // Convert from the left-hand frame to the world.
   const wx = (x: number): number => base.x + facing * x;

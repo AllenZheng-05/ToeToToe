@@ -2,7 +2,7 @@ import { Container, Sprite, type Texture } from 'pixi.js';
 import { PARTS, PART_SCALE } from '../../puppet/parts';
 import { svgDataUrl, type PuppetPreset } from '../../puppet/presets';
 import type { Placement, RigPose } from '../../puppet/rig';
-import { bakeCutout, canvasTexture, cutoutPadding, type CutoutOptions, type Padding } from './cutout';
+import { canvasTexture, cutoutPadding, outlineOffsets, type CutoutOptions } from './cutout';
 
 export interface PuppetImages {
   head: CanvasImageSource;
@@ -50,24 +50,84 @@ export async function loadPresetImages(preset: PuppetPreset): Promise<PuppetImag
 }
 
 interface PartArt {
-  texture: Texture;
+  /** Hard drop shadow of the outlined silhouette. */
+  shadow: Texture;
+  /** The white scissor edge: the dilated silhouette. */
+  edge: Texture;
+  /** The image alone. */
+  face: Texture;
   /** First anchor (pin / pinA / handle) in the texture's logical px: the sprite pivot. */
   pivot: { x: number; y: number };
 }
 
+function makeCanvas(w: number, h: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, w);
+  c.height = Math.max(1, h);
+  return c;
+}
+
+/** Fill every opaque pixel of `src` with `colour`, keeping the alpha. */
+function silhouette(src: HTMLCanvasElement, colour: string): HTMLCanvasElement {
+  const c = makeCanvas(src.width, src.height);
+  const g = c.getContext('2d') as CanvasRenderingContext2D;
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-in';
+  g.fillStyle = colour;
+  g.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+
+/**
+ * Bakes one part as three textures that share one canvas size and pivot: the shadow, the white
+ * edge and the face. Stacking all parts' shadows, then all edges, then all faces makes overlapping
+ * parts read as one cutout with a single outline and shadow around the whole puppet.
+ */
 function bakePart(
   source: CanvasImageSource,
   kind: 'head' | 'sock' | 'sword',
   anchor: { x: number; y: number },
 ): PartArt {
   const scale = PART_SCALE[kind];
-  const opts: CutoutOptions = { ...PART_CUTOUT, scale, resolution: RESOLUTION };
-  const pad: Padding = cutoutPadding(opts);
-  const canvas = bakeCutout(source, PARTS[kind].width, PARTS[kind].height, opts);
+  const o: CutoutOptions = { ...PART_CUTOUT, scale, resolution: RESOLUTION };
+  const pad = cutoutPadding(o);
+  const res = RESOLUTION;
+  const boxW = PARTS[kind].width * scale;
+  const boxH = PARTS[kind].height * scale;
+  const cw = Math.ceil((boxW + pad.left + pad.right) * res);
+  const ch = Math.ceil((boxH + pad.top + pad.bottom) * res);
+
+  const face = makeCanvas(cw, ch);
+  const fg = face.getContext('2d') as CanvasRenderingContext2D;
+  fg.imageSmoothingEnabled = true;
+  fg.imageSmoothingQuality = 'high';
+  fg.drawImage(source, pad.left * res, pad.top * res, boxW * res, boxH * res);
+
+  const white = silhouette(face, '#ffffff');
+  const edge = makeCanvas(cw, ch);
+  const eg = edge.getContext('2d') as CanvasRenderingContext2D;
+  const sides = { top: true, right: true, bottom: true, left: true };
+  for (const off of outlineOffsets(PART_CUTOUT.outline, sides, res)) {
+    eg.drawImage(white, off.x * res, off.y * res);
+  }
+
+  const shadow = makeCanvas(cw, ch);
+  const sg = shadow.getContext('2d') as CanvasRenderingContext2D;
+  sg.globalAlpha = PART_CUTOUT.shadowAlpha;
+  sg.drawImage(silhouette(edge, '#000000'), PART_CUTOUT.shadowX * res, PART_CUTOUT.shadowY * res);
+
   return {
-    texture: canvasTexture(canvas, RESOLUTION),
+    shadow: canvasTexture(shadow, res),
+    edge: canvasTexture(edge, res),
+    face: canvasTexture(face, res),
     pivot: { x: pad.left + anchor.x * scale, y: pad.top + anchor.y * scale },
   };
+}
+
+function destroyArt(art: PartArt | null): void {
+  art?.shadow.destroy(true);
+  art?.edge.destroy(true);
+  art?.face.destroy(true);
 }
 
 function bakePinTexture(): Texture {
@@ -93,20 +153,46 @@ function place(sprite: Sprite, p: Placement): void {
   sprite.scale.set(p.scaleX, 1);
 }
 
+/** One part's three sprites, one in each layer. */
+class PartSprites {
+  readonly shadow = new Sprite();
+  readonly edge = new Sprite();
+  readonly face = new Sprite();
+
+  setArt(art: PartArt): void {
+    this.shadow.texture = art.shadow;
+    this.edge.texture = art.edge;
+    this.face.texture = art.face;
+    for (const s of [this.shadow, this.edge, this.face]) s.pivot.set(art.pivot.x, art.pivot.y);
+  }
+
+  place(p: Placement): void {
+    for (const s of [this.shadow, this.edge, this.face]) place(s, p);
+  }
+
+  destroy(): void {
+    for (const s of [this.shadow, this.edge, this.face]) if (!s.destroyed) s.destroy();
+  }
+}
+
 /**
  * A puppet drawn from baked cutout textures of its three parts. `setPose` applies a RigPose from
  * solveRig: segment sprites are pooled and added or removed as the count changes; brass pins are
- * drawn at the joints. Back to front: segments, sword, head, pins.
+ * drawn at the joints. Layers, bottom to top: every part's shadow, every part's white edge, every
+ * part's face (segments, sword, head in each), then the pins. Stacking by layer rather than by
+ * part makes the edge and shadow wrap the whole puppet instead of each part.
  */
 export class PuppetView {
   readonly container = new Container();
   readonly facing: 1 | -1;
-  private readonly segmentLayer = new Container();
+  private readonly shadowLayer = new Container();
+  private readonly edgeLayer = new Container();
+  private readonly faceLayer = new Container();
   private readonly pinLayer = new Container();
-  private readonly sword = new Sprite();
-  private readonly head = new Sprite();
+  private readonly sword = new PartSprites();
+  private readonly head = new PartSprites();
   private readonly pinTexture = bakePinTexture();
-  private readonly segmentPool: Sprite[] = [];
+  private readonly segmentPool: PartSprites[] = [];
   private readonly pinPool: Sprite[] = [];
   private sockArt: PartArt | null = null;
   private headArt: PartArt | null = null;
@@ -116,7 +202,15 @@ export class PuppetView {
 
   constructor(images: PuppetImages, facing: 1 | -1) {
     this.facing = facing;
-    this.container.addChild(this.segmentLayer, this.sword, this.head, this.pinLayer);
+    this.container.addChild(this.shadowLayer, this.edgeLayer, this.faceLayer, this.pinLayer);
+    // The sword and head go on top of the body segments in every layer.
+    for (const [layer, key] of [
+      [this.shadowLayer, 'shadow'],
+      [this.edgeLayer, 'edge'],
+      [this.faceLayer, 'face'],
+    ] as const) {
+      layer.addChild(this.sword[key], this.head[key]);
+    }
     this.setImages(images);
   }
 
@@ -129,18 +223,28 @@ export class PuppetView {
     this.headArt = bakePart(images.head, 'head', PARTS.head.pin);
     this.swordArt = bakePart(images.sword, 'sword', PARTS.sword.handle);
 
-    for (const s of this.segmentPool) {
-      s.texture = this.sockArt.texture;
-      s.pivot.set(this.sockArt.pivot.x, this.sockArt.pivot.y);
-    }
-    this.head.texture = this.headArt.texture;
-    this.head.pivot.set(this.headArt.pivot.x, this.headArt.pivot.y);
-    this.sword.texture = this.swordArt.texture;
-    this.sword.pivot.set(this.swordArt.pivot.x, this.swordArt.pivot.y);
+    for (const s of this.segmentPool) s.setArt(this.sockArt);
+    this.head.setArt(this.headArt);
+    this.sword.setArt(this.swordArt);
 
-    oldSock?.texture.destroy(true);
-    oldHead?.texture.destroy(true);
-    oldSword?.texture.destroy(true);
+    destroyArt(oldSock);
+    destroyArt(oldHead);
+    destroyArt(oldSword);
+  }
+
+  private addSegment(i: number): void {
+    const s = this.segmentPool[i] as PartSprites;
+    // Segments sit below the sword and head, so insert them at the bottom of each layer.
+    this.shadowLayer.addChildAt(s.shadow, Math.min(i, this.shadowLayer.children.length));
+    this.edgeLayer.addChildAt(s.edge, Math.min(i, this.edgeLayer.children.length));
+    this.faceLayer.addChildAt(s.face, Math.min(i, this.faceLayer.children.length));
+  }
+
+  private removeSegment(i: number): void {
+    const s = this.segmentPool[i] as PartSprites;
+    this.shadowLayer.removeChild(s.shadow);
+    this.edgeLayer.removeChild(s.edge);
+    this.faceLayer.removeChild(s.face);
   }
 
   setPose(pose: RigPose): void {
@@ -148,22 +252,22 @@ export class PuppetView {
     if (!sock) return;
     // Segment sprites: pooled, added or removed as the count changes.
     while (this.segmentPool.length < pose.segments.length) {
-      const s = new Sprite(sock.texture);
-      s.pivot.set(sock.pivot.x, sock.pivot.y);
+      const s = new PartSprites();
+      s.setArt(sock);
       this.segmentPool.push(s);
     }
     while (this.segmentsShown < pose.segments.length) {
-      this.segmentLayer.addChild(this.segmentPool[this.segmentsShown] as Sprite);
+      this.addSegment(this.segmentsShown);
       this.segmentsShown++;
     }
     while (this.segmentsShown > pose.segments.length) {
       this.segmentsShown--;
-      this.segmentLayer.removeChild(this.segmentPool[this.segmentsShown] as Sprite);
+      this.removeSegment(this.segmentsShown);
     }
-    pose.segments.forEach((p, i) => place(this.segmentPool[i] as Sprite, p));
+    pose.segments.forEach((p, i) => (this.segmentPool[i] as PartSprites).place(p));
 
-    place(this.sword, pose.sword);
-    place(this.head, pose.head);
+    this.sword.place(pose.sword);
+    this.head.place(pose.head);
 
     while (this.pinPool.length < pose.pins.length) {
       const s = new Sprite(this.pinTexture);
@@ -184,10 +288,13 @@ export class PuppetView {
   destroy(): void {
     this.container.destroy({ children: true });
     // Pooled sprites that are currently removed from the tree are not reached by the call above.
-    for (const s of [...this.segmentPool, ...this.pinPool]) if (!s.destroyed) s.destroy();
-    this.sockArt?.texture.destroy(true);
-    this.headArt?.texture.destroy(true);
-    this.swordArt?.texture.destroy(true);
+    for (const s of this.segmentPool) s.destroy();
+    for (const s of this.pinPool) if (!s.destroyed) s.destroy();
+    this.sword.destroy();
+    this.head.destroy();
+    destroyArt(this.sockArt);
+    destroyArt(this.headArt);
+    destroyArt(this.swordArt);
     this.pinTexture.destroy(true);
     this.segmentPool.length = 0;
     this.pinPool.length = 0;

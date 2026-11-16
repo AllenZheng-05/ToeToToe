@@ -26,10 +26,10 @@ export const PARTS: {
 /**
  * Scale from drawing pixels to stage design pixels. The mocks draw the head at 0.62 (idle) or
  * 0.58 (stretched), the sword at 0.5 or 0.4, and sock segments 120 design px wide (160 * 0.75).
- * Head and sword use the midpoints so one value serves every pose.
+ * Head and sword use values near the midpoints so one value serves every pose.
  */
 export const PART_SCALE: { head: number; sock: number; sword: number } = {
-  head: 0.6,
+  head: 0.63,
   sock: 0.75,
   sword: 0.45,
 };

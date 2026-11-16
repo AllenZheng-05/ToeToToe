@@ -32,8 +32,8 @@ const BASES: [Point, Point] = [
   { x: 950, y: 675 },
 ];
 const IDLE_TIPS: [Point, Point] = [
-  { x: 668, y: 406 },
-  { x: 612, y: 416 },
+  { x: 668, y: 436 },
+  { x: 612, y: 446 },
 ];
 
 const toFraction = (x: number, y: number): Strike => ({

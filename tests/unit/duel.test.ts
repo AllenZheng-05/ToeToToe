@@ -178,15 +178,15 @@ describe('judgeParry', () => {
   });
 
   it('checks the radius, larger for touch', () => {
-    expect(judgeParry(target, { x: 0.559, y: 0.5 }, 0, false, t)).toBe('bravo');
-    expect(judgeParry(target, { x: 0.57, y: 0.5 }, 0, false, t)).toBeNull();
-    expect(judgeParry(target, { x: 0.57, y: 0.5 }, 0, true, t)).toBe('bravo');
+    expect(judgeParry(target, { x: 0.549, y: 0.5 }, 0, false, t)).toBe('bravo');
+    expect(judgeParry(target, { x: 0.56, y: 0.5 }, 0, false, t)).toBeNull();
+    expect(judgeParry(target, { x: 0.56, y: 0.5 }, 0, true, t)).toBe('bravo');
     expect(judgeParry(target, { x: 0.6, y: 0.5 }, 0, true, t)).toBeNull();
   });
 
   it('applies the aspect to y for the radius', () => {
-    // dy 0.1 -> 0.05 width units, inside 0.06
-    expect(judgeParry(target, { x: 0.5, y: 0.6 }, 0, false, t)).toBe('bravo');
+    // dy 0.09 -> 0.045 width units, inside 0.05
+    expect(judgeParry(target, { x: 0.5, y: 0.59 }, 0, false, t)).toBe('bravo');
     expect(judgeParry(target, { x: 0.5, y: 0.65 }, 0, false, t)).toBeNull();
   });
 });

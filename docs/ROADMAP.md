@@ -58,7 +58,7 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 - [ ] 7.1 B: phone layout, touch, rotate prompt
 - [ ] 7.2 B: input calibration screen
 - [ ] 7.3 B: remaining unmocked states
-- [ ] 7.4 H: deployment config, CSP, `docs/DEPLOY.md`, `docs/ASSETS.md`
+- [x] 7.4 H: deployment config, CSP, `docs/DEPLOY.md`, `docs/ASSETS.md`
 
 ## After everything
 
