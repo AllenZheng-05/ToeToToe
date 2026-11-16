@@ -1,0 +1,21 @@
+# Decisions
+
+Engineering calls made during the build, newest last. Each has its reason. Items Allen may want to revisit are also listed in `docs/MORNING_REPORT.md`.
+
+## Milestone 0
+
+1. **pnpm 10.34.6 was already installed**, so no corepack step or npm fallback was needed. Node is 22.13.1.
+2. **Versions pinned from npm on 16 Nov 2026**, newer than the brief's figures: Vite 8.3.8, TypeScript 6.0.3 (7.0.2 is current, but typescript-eslint 8.72.2 only accepts TypeScript below 6.1), Vitest 5.1.0, ESLint 10.15.0, PixiJS 8.23.0, Trystero 0.27.0, Playwright 1.65.1. Where current docs differ from the brief, the docs win.
+3. **DNS is on Cloudflare** (Allen said so when starting the run), so `docs/DEPLOY.md` leads with Cloudflare Pages and keeps the other case short.
+4. **The orchestrator wrote `src/core/types.ts`.** It is types only (the interfaces every brief depends on). Writing it once centrally was cheaper and safer than having a subagent transcribe it. All runtime code is written by builders.
+5. **Count-in and intermission are not reducer phases.** `DuelState.phase` is `attack`, `defend` or `matchOver`; the count-in is the clock not having reached `state.phrase` yet. Fewer states to keep in sync across two browsers.
+6. **Only the active player of a phrase generates duel events** (attacker: plant, commit; defender: parry, resolve). Both browsers therefore apply identical event sequences without a lockstep protocol. The host still sends full state after each resolve as the authority.
+7. **Acts end only at the end of a defend phrase.** Health can reach 0 mid-phrase; the phrase plays out. Keeps act scoring on a clean boundary both browsers agree on.
+8. **A tie on time plays on.** The brief says the higher health wins after 90 seconds and does not cover equal health. Further turns are played until health differs.
+9. **Winded applies to the next whole defend phrase.** If stamina hits 0 in the middle of a defend phrase, that phrase is not doubled; the next one the player defends is, and afterwards stamina resets to 50.
+10. **Early clicks.** A click on a target more than `missWindowMs` (200 ms) early is ignored; inside that but outside the Good window is a Miss. The brief says only "later, earlier, or not clicked".
+11. **Distance cost of a strike** scales linearly up to `strikeDistanceForMaxCost` (0.6 of the play-area width) from the previous strike of the same phrase; the first strike of a phrase pays only the base cost.
+12. **The bot is a second `DuelSession` on an in-memory loopback**, not a special code path, so bot matches exercise the real protocol.
+13. **Between acts there is a 2-phrase intermission and then the count-in**; the music keeps playing so the beat grid never restarts.
+14. **Custom subagent types were not loadable mid-session**, so every subagent is a general-purpose agent with the model set (`sonnet`, `haiku`, `opus`) and the role text pasted into its brief, as the kickoff brief allows. The definitions in `.claude/agents/` are in place for future sessions.
+15. **Task briefs are kept in `docs/briefs/`** so a resumed session can see exactly what each task was asked to do.

@@ -1,0 +1,9 @@
+dist
+node_modules
+design
+docs
+CLAUDE.md
+.claude
+pnpm-lock.yaml
+playwright-report
+test-results
