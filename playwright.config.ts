@@ -14,7 +14,15 @@ export default defineConfig({
     baseURL: 'http://localhost:4173',
     viewport: { width: 1280, height: 720 },
     screenshot: 'only-on-failure',
-    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
+    launchOptions: {
+      args: [
+        '--autoplay-policy=no-user-gesture-required',
+        // Two pages play each other: neither may be slowed down for being in the background.
+        '--disable-renderer-backgrounding',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+      ],
+    },
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 720 } } },

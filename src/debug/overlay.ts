@@ -1,10 +1,25 @@
 import type { App, FrameInfo } from '../app/app';
 import { DEFAULT_TUNABLES } from '../core/tunables';
-import type { Tunables } from '../core/types';
+import type { SessionEvent } from '../core/session';
+import type { BeatGrid, Tunables } from '../core/types';
+import type { Room } from '../net/room';
+import { ScriptRunner, type ScriptEvent } from './script';
 
 declare global {
   interface Window {
-    __ttt?: { app: App; session: App['session'] };
+    /** Debug hooks (?debug=1) for tests and tinkering. */
+    __ttt?: {
+      app: App;
+      session: App['session'];
+      room: Room | null;
+      grid: BeatGrid | null;
+      /** Session events seen, oldest first, capped at 500. */
+      events: SessionEvent[];
+      /** Player healths after each judged strike: {phrase, health: [p0, p1]}. */
+      healthLog: App['healthLog'];
+      /** Queue scripted clicks; see src/debug/script.ts. */
+      script(events: ScriptEvent[]): void;
+    };
   }
 }
 
@@ -29,9 +44,18 @@ function set(node: HTMLElement, text: string): void {
 
 /** Debug panel for ?debug=1. Reads the app and edits the live Tunables object in place. */
 export function createDebugOverlay(app: App): void {
+  const runner = new ScriptRunner(app);
   Object.defineProperty(window, '__ttt', {
     configurable: true,
-    get: () => ({ app, session: app.session }),
+    get: () => ({
+      app,
+      session: app.session,
+      room: app.connection?.room ?? null,
+      grid: app.match?.grid ?? null,
+      events: app.events,
+      healthLog: app.healthLog,
+      script: (events: ScriptEvent[]) => runner.add(events),
+    }),
   });
 
   const panel = document.createElement('div');
@@ -87,7 +111,11 @@ export function createDebugOverlay(app: App): void {
     input.value = String(app.tunables[key]);
     input.addEventListener('input', () => {
       const v = input.valueAsNumber;
-      if (Number.isFinite(v)) app.tunables[key] = v;
+      if (!Number.isFinite(v)) return;
+      app.tunables[key] = v;
+      // The host's edits reach the guest, who adopts them (Room applies `tunables` at any time).
+      const conn = app.connection;
+      if (conn?.role === 'host') conn.transport.send({ t: 'tunables', tunables: { ...app.tunables } });
     });
     label.append(k, input);
     panel.appendChild(label);
@@ -134,13 +162,18 @@ export function createDebugOverlay(app: App): void {
       set(offset, `${lastOffset.toFixed(1)} ms  mean ${mean.toFixed(1)} ms (${offsets.length})`);
     }
 
-    const transport = app.match?.transport;
-    set(
-      link,
-      transport
-        ? `${transport.state}  rtt ${transport.rttMs === null ? '-' : `${transport.rttMs.toFixed(0)} ms`}`
-        : '-',
-    );
+    runner.update();
+
+    const conn = app.connection;
+    if (conn) {
+      const { room, transport } = conn;
+      const rtt = room.rttMs === null ? '-' : `${room.rttMs.toFixed(0)} ms`;
+      const off = room.role === 'host' ? '0 ms' : `${(room.clockOffsetSec * 1000).toFixed(1)} ms`;
+      set(link, `${transport.state}  ${room.role}  rtt ${rtt}  offset ${off}`);
+    } else {
+      const transport = app.match?.transport;
+      set(link, transport ? `${transport.state}  ${transport.role}` : '-');
+    }
 
     const bot = app.match?.bot;
     if (bot && document.activeElement !== acc) acc.value = String(bot.options.accuracy);

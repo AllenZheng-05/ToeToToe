@@ -110,6 +110,8 @@ export class DuelScene implements Scene {
   private onEvent(e: SessionEvent, sfx: ReturnType<typeof createSfx>): void {
     const session = this.session;
     if (!session) return;
+    this.app.recordEvent(e);
+    if (e.type === 'judged') queueMicrotask(() => this.app.recordHealth());
     switch (e.type) {
       case 'planted':
         sfx.play('plant');
@@ -151,6 +153,7 @@ export class DuelScene implements Scene {
     this.app.overlay.appendChild(notice);
     this.notice = notice;
     this.leaveTimer = window.setTimeout(() => {
+      this.setup.leave?.();
       void this.app.go(new TitleScene(this.app));
     }, LEFT_NOTICE_MS);
   }

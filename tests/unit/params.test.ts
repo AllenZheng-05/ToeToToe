@@ -13,6 +13,7 @@ describe('parseParams', () => {
       seed: null,
       botAccuracy: null,
       room: null,
+      net: 'peer',
       tunables: {},
     });
   });
@@ -20,7 +21,7 @@ describe('parseParams', () => {
   it('reads every field', () => {
     const tunables = encodeURIComponent('{"startHealth":30,"missDamage":4}');
     const p = parseParams(
-      `${base}?debug=1&bot=1&autoplay=1&bpm=140&seed=7&botAccuracy=0.5&room=ROW-G-12&tunables=${tunables}`,
+      `${base}?debug=1&bot=1&autoplay=1&bpm=140&seed=7&botAccuracy=0.5&room=ROW-G-12&net=tab&tunables=${tunables}`,
     );
     expect(p).toEqual({
       debug: true,
@@ -30,6 +31,7 @@ describe('parseParams', () => {
       seed: 7,
       botAccuracy: 0.5,
       room: 'ROW-G-12',
+      net: 'tab',
       tunables: { startHealth: 30, missDamage: 4 },
     });
   });
@@ -68,6 +70,12 @@ describe('parseParams', () => {
 
   it('prefers the query room over the path', () => {
     expect(parseParams(`${base}AAA?room=BBB`).room).toBe('BBB');
+  });
+
+  it('reads the net mode, defaulting to peer', () => {
+    expect(parseParams(`${base}?net=tab`).net).toBe('tab');
+    expect(parseParams(`${base}?net=peer`).net).toBe('peer');
+    expect(parseParams(`${base}?net=bogus`).net).toBe('peer');
   });
 
   it('rejects odd room codes', () => {

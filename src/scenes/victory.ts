@@ -1,12 +1,17 @@
 import type { App } from '../app/app';
 import type { DuelSession } from '../core/session';
-import type { PlayerId } from '../core/types';
+import type { PlayerId, Unsubscribe } from '../core/types';
 import { DuelScene } from './duel';
 import { TitleScene } from './title';
 import type { MatchSetup, Scene } from './types';
 
+/** How long "Your friend left" stays up before returning to the title (UI only, not on the beat). */
+const LEFT_NOTICE_MS = 2200;
+
 export class VictoryScene implements Scene {
   private root: HTMLElement | null = null;
+  private cleanups: Unsubscribe[] = [];
+  private leaveTimer: number | null = null;
 
   constructor(
     private readonly app: App,
@@ -39,6 +44,11 @@ export class VictoryScene implements Scene {
     score.textContent = `Acts: ${setup.names[0]} ${actWins[0]}, ${setup.names[1]} ${actWins[1]}`;
     card.appendChild(score);
 
+    const rematchNote = document.createElement('p');
+    rematchNote.className = 'hint';
+    rematchNote.dataset.testid = 'rematch-status';
+    card.appendChild(rematchNote);
+
     const buttons = document.createElement('div');
     buttons.className = 'buttons';
     card.appendChild(buttons);
@@ -53,6 +63,7 @@ export class VictoryScene implements Scene {
       const next = setup.rematch;
       if (!next) return;
       rematch.disabled = true;
+      if (setup.online) rematchNote.textContent = 'Waiting for your friend…';
       void next().then(
         (match) => this.app.go(new DuelScene(this.app, match)),
         () => {
@@ -67,14 +78,51 @@ export class VictoryScene implements Scene {
     back.className = 'btn paper';
     back.dataset.testid = 'back-to-title';
     back.textContent = 'Back to title';
-    back.addEventListener('click', () => void this.app.go(new TitleScene(this.app)));
+    back.addEventListener('click', () => {
+      setup.leave?.();
+      void this.app.go(new TitleScene(this.app));
+    });
     buttons.appendChild(back);
 
     this.app.overlay.appendChild(root);
     this.root = root;
+
+    if (setup.online) {
+      const peer = setup.names[setup.localPlayer === 0 ? 1 : 0];
+      if (setup.watchRematch) {
+        this.cleanups.push(
+          setup.watchRematch((s) => {
+            if (s.local) rematchNote.textContent = s.peer ? '' : 'Waiting for your friend…';
+            else rematchNote.textContent = s.peer ? `${peer} wants a rematch` : '';
+          }),
+        );
+      }
+      this.cleanups.push(
+        setup.transport.onState((state) => {
+          if (state === 'closed') this.onPeerLeft(card);
+        }),
+      );
+    }
+  }
+
+  private onPeerLeft(card: HTMLElement): void {
+    if (this.leaveTimer !== null) return;
+    const notice = document.createElement('p');
+    notice.className = 'hint';
+    notice.dataset.testid = 'friend-left';
+    notice.textContent = 'Your friend left';
+    card.appendChild(notice);
+    for (const b of card.querySelectorAll('button')) b.disabled = true;
+    this.leaveTimer = window.setTimeout(() => {
+      this.setup.leave?.();
+      void this.app.go(new TitleScene(this.app));
+    }, LEFT_NOTICE_MS);
   }
 
   exit(): void {
+    for (const off of this.cleanups.splice(0)) off();
+    if (this.leaveTimer !== null) window.clearTimeout(this.leaveTimer);
+    this.leaveTimer = null;
     if (this.session && this.app.session === this.session) this.app.session = null;
     this.root?.remove();
     this.root = null;

@@ -1,9 +1,10 @@
 import { AudioEngine } from '../audio/engine';
 import { createTunables } from '../core/tunables';
-import type { DuelSession } from '../core/session';
+import type { DuelSession, SessionEvent } from '../core/session';
 import type { Tunables, Unsubscribe } from '../core/types';
 import type { MatchSetup, Scene } from '../scenes/types';
 import { Stage } from '../stage/stage';
+import type { Connection } from './connection';
 import type { AppParams } from './params';
 
 export interface FrameInfo {
@@ -16,6 +17,8 @@ export interface FrameInfo {
 /** How often a hidden tab is polled. */
 const HIDDEN_POLL_MS = 100;
 const JUDGED_HISTORY = 20;
+/** How many session events are kept for the debug hooks. */
+const EVENT_HISTORY = 500;
 
 export class App {
   readonly params: AppParams;
@@ -27,6 +30,13 @@ export class App {
   session: DuelSession | null = null;
   /** Last judged input offsets of the local player, in milliseconds, oldest first. */
   readonly judgedOffsets: number[] = [];
+
+  /** The open room, if any (lobby, duel or victory screen of a two-player match). */
+  connection: Connection | null = null;
+  /** Session events seen, oldest first, capped. Read by the debug hooks. */
+  readonly events: SessionEvent[] = [];
+  /** Player healths after each judged strike, oldest first, capped. Debug hooks only. */
+  readonly healthLog: { phrase: number; health: [number, number] }[] = [];
 
   private audio: AudioEngine | null = null;
   private scene: Scene | null = null;
@@ -65,6 +75,18 @@ export class App {
   recordJudgedOffset(ms: number): void {
     this.judgedOffsets.push(ms);
     if (this.judgedOffsets.length > JUDGED_HISTORY) this.judgedOffsets.shift();
+  }
+
+  recordEvent(e: SessionEvent): void {
+    this.events.push(e);
+    if (this.events.length > EVENT_HISTORY) this.events.shift();
+  }
+
+  recordHealth(): void {
+    const s = this.session?.state;
+    if (!s) return;
+    this.healthLog.push({ phrase: s.phrase, health: [s.players[0].health, s.players[1].health] });
+    if (this.healthLog.length > EVENT_HISTORY) this.healthLog.shift();
   }
 
   onFrame(cb: (info: FrameInfo) => void): Unsubscribe {

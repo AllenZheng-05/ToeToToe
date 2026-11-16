@@ -17,6 +17,8 @@ export interface AppParams {
   botAccuracy: number | null;
   /** ?room=ROW-G-12 or the path /ROW-G-12. */
   room: string | null;
+  /** ?net=tab: rooms talk over BroadcastChannel between tabs of one browser (tests); default 'peer' is WebRTC. */
+  net: 'peer' | 'tab';
   /** ?tunables={"startHealth":30}: JSON; unknown keys and non-number values are dropped. */
   tunables: Partial<Tunables>;
 }
@@ -81,6 +83,7 @@ export function parseParams(url: string): AppParams {
     seed: num(q.get('seed')),
     botAccuracy: num(q.get('botAccuracy')),
     room: parseRoom(q.get('room'), u.pathname),
+    net: q.get('net') === 'tab' ? 'tab' : 'peer',
     tunables: parseTunables(q.get('tunables')),
   };
 }

@@ -156,6 +156,50 @@ body {
   font-size: 15px;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+.lobby .card h1 {
+  font-size: 40px;
+  margin-bottom: 8px;
+}
+
+.lobby .card .score {
+  margin-bottom: 12px;
+  font-size: 30px;
+  font-weight: bold;
+}
+
+.lobby .hint {
+  margin: 6px 0;
+}
+
+.lobby .players p {
+  margin: 4px 0;
+  font-size: 20px;
+}
+
+.lobby .buttons {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.lobby .btn {
+  font-size: 20px;
+  padding: 8px 16px;
+}
+
+.lobby .field {
+  margin-bottom: 10px;
+}
+
+.btn.on {
+  background: #9be7a5;
+}
+
 .toast {
   position: absolute;
   left: 50%;
