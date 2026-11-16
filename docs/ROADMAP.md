@@ -28,7 +28,7 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 - [x] 2.2 B: Trystero peer transport (strategy as config), room full, leaving
 - [x] 2.3 B: lobby flow (create, join, waiting, ready, start, rematch, friend left)
 - [x] 2.4 B: Playwright two-window check playing a full act
-- [ ] 2.5 R: review (folded into the final whole-codebase review)
+- [x] 2.5 R: review (folded into the final whole-codebase review)
 
 ## Milestone 3: the final design
 
@@ -62,6 +62,7 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 
 ## After everything
 
-- [ ] Reviewer pass over the whole codebase against the timing rules
+- [x] Reviewer pass over the whole codebase against the timing rules
+- [~] Review fixes (brief 8)
 - [ ] Extra test coverage for duel rules and protocol
 - [ ] Final morning report
