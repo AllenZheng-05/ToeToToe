@@ -1,5 +1,13 @@
 import { cleanText } from '../core/text';
-import type { BlobKind, BlobMeta, ThemeOffer, Transport, Tunables, Unsubscribe } from '../core/types';
+import type {
+  BlobKind,
+  BlobMeta,
+  RejectedBlob,
+  ThemeOffer,
+  Transport,
+  Tunables,
+  Unsubscribe,
+} from '../core/types';
 import { SONG_LIMITS } from '../data/songFile';
 import { toThemeOffer, type TrackInfo } from '../data/tracks';
 import type { Room } from '../net/room';
@@ -29,6 +37,8 @@ const FALLBACK_NAME = 'Friend';
 export const MAX_THEME_TITLE = 80;
 /** A transfer with no progress for this long is given up on, so Start cannot stay locked (UI pacing, not beat timing). */
 export const TRANSFER_STALL_MS = 30_000;
+/** How long after a failed or stalled drawing send the drawings are sent once more (UI pacing, not beat timing). */
+export const PUPPET_RESEND_DELAY_MS = 1500;
 
 // ------------------------------------------------------------------ drawings (pure)
 
@@ -254,6 +264,11 @@ export class Exchange {
   private songFetch: number | null = null;
   private sending = false;
   private sendAgain = false;
+  /** Bumped for every send run and when one is given up on, so a run that was abandoned stops touching state. */
+  private sendGen = 0;
+  /** Retries left for the current drawing send (one per request; a new request earns a new one). */
+  private resendLeft = 0;
+  private resendCancel: (() => void) | null = null;
   private peerSeen = false;
   private disposed = false;
 
@@ -282,6 +297,7 @@ export class Exchange {
     this.unsubs.push(
       transport.onBlob((data, meta) => this.onBlob(data, meta)),
       transport.onBlobProgress((fraction, meta) => this.onProgress(fraction, meta)),
+      ...(transport.onBlobRejected ? [transport.onBlobRejected((info) => this.onRejected(info))] : []),
       transport.onMessage((m) => {
         if (m.t === 'themeReady') this.onThemeReady(m.hash, m.ok);
       }),
@@ -317,10 +333,16 @@ export class Exchange {
     return this.loaded;
   }
 
-  /** True while any drawing or song is on its way. */
+  /** True while any drawing or song is on its way (or about to be: a send has been asked for). */
   get busy(): boolean {
     const v = this.view;
-    return v.puppetSend !== null || v.puppetFetch !== null || v.songSend !== null || v.songFetch !== null;
+    return (
+      this.sending ||
+      v.puppetSend !== null ||
+      v.puppetFetch !== null ||
+      v.songSend !== null ||
+      v.songFetch !== null
+    );
   }
 
   onChange(cb: () => void): Unsubscribe {
@@ -336,10 +358,15 @@ export class Exchange {
     this.loadToken++;
     this.stallCancel?.();
     this.stallCancel = null;
+    this.resendCancel?.();
+    this.resendCancel = null;
   }
 
   /** Send the selected puppet (again). Safe to call at any time; a call during a send queues one more. */
   sendPuppet(): void {
+    this.resendLeft = 1;
+    this.resendCancel?.();
+    this.resendCancel = null;
     if (this.sending) {
       this.sendAgain = true;
       return;
@@ -378,7 +405,9 @@ export class Exchange {
   }
 
   private async runSend(): Promise<void> {
+    const gen = ++this.sendGen;
     this.sending = true;
+    let failed = false;
     try {
       do {
         this.sendAgain = false;
@@ -389,6 +418,7 @@ export class Exchange {
         } catch {
           break;
         }
+        if (gen !== this.sendGen) return;
         const parts: [PartKind, ArrayBuffer][] = [
           ['head', p.head],
           ['sock', p.sock],
@@ -399,27 +429,46 @@ export class Exchange {
         this.activity();
         this.emit();
         for (const [kind, data] of parts) {
-          if (this.disposed || this.d.transport.state !== 'open') break;
+          if (this.disposed || this.d.transport.state !== 'open' || gen !== this.sendGen) break;
           const meta: BlobMeta = { kind: BLOB_OF[kind], mime: PNG, bytes: data.byteLength };
           if (kind === 'head') meta.name = p.name.slice(0, MAX_PEER_PUPPET_NAME);
           try {
             await this.d.transport.sendBlob(data.slice(0), meta, (f) => {
+              if (gen !== this.sendGen) return;
               this.puppetSend = (done + f) / PART_KINDS.length;
               this.activity();
               this.emit();
             });
           } catch {
+            failed = true;
             break;
           }
           done++;
         }
-      } while (this.sendAgain && !this.disposed);
+      } while (this.sendAgain && !this.disposed && !failed && gen === this.sendGen);
     } finally {
-      this.sending = false;
-      this.puppetSend = null;
-      this.activity();
-      if (!this.disposed) this.emit();
+      // A run that was given up on (stalled) leaves the state to whoever took over.
+      if (gen === this.sendGen) {
+        this.sending = false;
+        this.puppetSend = null;
+        this.activity();
+        if (!this.disposed) this.emit();
+        if (failed) this.scheduleResend();
+      }
     }
+  }
+
+  /** The drawings did not go out: try once more shortly (once per request, never a loop). */
+  private scheduleResend(): void {
+    if (this.resendLeft <= 0 || this.disposed || this.d.transport.state !== 'open') return;
+    this.resendLeft--;
+    this.resendCancel?.();
+    this.resendCancel = this.schedule(() => {
+      this.resendCancel = null;
+      if (this.disposed || this.d.transport.state !== 'open') return;
+      if (this.sending) this.sendAgain = true;
+      else void this.runSend();
+    }, PUPPET_RESEND_DELAY_MS);
   }
 
   private onProgress(fraction: number, meta: BlobMeta): void {
@@ -448,20 +497,49 @@ export class Exchange {
       this.emit();
       return;
     }
+    // Not a PNG counts as a rejected part, like bad bytes.
+    this.takePart({ kind: meta.kind, name: meta.name }, meta.mime === PNG ? data : new ArrayBuffer(0));
+  }
+
+  /** One of the friend's drawing parts has been seen (good bytes, or none for a part that is to fall back). */
+  private takePart(meta: Pick<BlobMeta, 'kind' | 'name'>, data: ArrayBuffer): void {
     const part = PART_OF[meta.kind];
     if (!part) return;
-    if (meta.mime !== PNG) {
-      // Not a PNG: counts as a rejected part, like bad bytes.
-      this.collector.accept({ kind: meta.kind, name: meta.name }, new ArrayBuffer(0));
-    } else {
-      this.collector.accept({ kind: meta.kind, name: meta.name }, data);
-    }
+    this.collector.accept(meta, data);
     this.fetchProgress[part] = 1;
     const done = this.collector.result();
     if (done) {
       this.fetchProgress = {};
       void this.decode(done);
     }
+    this.activity();
+    this.emit();
+  }
+
+  /** The link threw a blob away: whatever was showing for it ends now, and what it was for falls back. */
+  private onRejected(info: RejectedBlob): void {
+    if (this.disposed) return;
+    if (info.kind === 'song') {
+      if (this.d.role !== 'guest') return;
+      this.songFetch = null;
+      this.activity();
+      this.pendingSong = null;
+      const offer = this.offer;
+      if (offer && offer.source === 'upload' && this.gate.localStatus === 'loading') {
+        // The plain "could not load" path: the host is told, and sends the file again with the next offer.
+        const token = ++this.loadToken;
+        this.finishLoad(token, themeKey(offer), null, 'That song could not be loaded.');
+      }
+      this.emit();
+      return;
+    }
+    if (info.kind !== null && PART_OF[info.kind]) {
+      this.takePart({ kind: info.kind, name: info.name }, new ArrayBuffer(0));
+      return;
+    }
+    // Nothing to say which transfer it was: none of them can be waited for.
+    this.fetchProgress = {};
+    this.songFetch = null;
     this.activity();
     this.emit();
   }
@@ -680,12 +758,19 @@ export class Exchange {
 
   /** The friend left, or nothing has moved for a long time: nothing is on its way any more. */
   private dropTransfers(): void {
+    const stalledSend = this.puppetSend !== null;
     this.fetchProgress = {};
     this.puppetSend = null;
     this.songSend = null;
     this.songFetch = null;
     this.stallCancel?.();
     this.stallCancel = null;
+    if (stalledSend) {
+      // A drawing send that nothing moved in: give up on that run and send the drawings once more.
+      this.sendGen++;
+      this.sending = false;
+      this.scheduleResend();
+    }
     if (!this.disposed) this.emit();
   }
 }

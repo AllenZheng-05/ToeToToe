@@ -40,6 +40,9 @@ export interface DuelSessionOptions {
   inputOffsetMs?: number;
 }
 
+/** The messages whose arrival is measured against the local beat they refer to. */
+export type ArrivalMessage = 'plant' | 'commit' | 'resolve';
+
 export type SessionEvent =
   | { type: 'planted'; player: PlayerId; strike: Strike; index: number }
   | { type: 'judged'; player: PlayerId; index: number; grade: Grade; offsetMs: number | null }
@@ -48,6 +51,16 @@ export type SessionEvent =
   | { type: 'actOver'; winner: PlayerId; act: number }
   | { type: 'matchOver'; winner: PlayerId }
   | { type: 'desync' };
+
+/** The last defend phrase that was resolved, kept so a resolve that arrives ahead of the local beat can still be drawn. */
+interface ResolvedDefend {
+  /** The defend phrase's absolute index. */
+  phrase: number;
+  attacker: PlayerId;
+  strikes: Strike[];
+  /** Final grades (an unjudged strike is a miss, as the resolve made it). */
+  results: Grade[];
+}
 
 interface PendingParry {
   phrase: number;
@@ -86,6 +99,12 @@ function isGrade(v: unknown): v is Grade {
 /** One player's side of a match. No timers: the owner calls update() every frame. */
 export class DuelSession {
   inputOffsetMs: number;
+  /**
+   * Called for every `plant`, `commit` and `resolve` that arrives, with how late it came against the local beat
+   * it refers to, in seconds (negative = early): a plant against its slot, a commit or resolve against the end
+   * of its phrase, which is when its sender sends it. For measuring sync quality; it does not affect play.
+   */
+  onArrival: ((kind: ArrivalMessage, lateSec: number) => void) | null = null;
 
   private readonly local: PlayerId;
   private readonly clock: Clock;
@@ -102,6 +121,7 @@ export class DuelSession {
   private disposed = false;
   /** An attacker-to-be's click that landed just before the attack phrase, planted once the defend phrase resolves. */
   private held: { phrase: number; x: number; y: number; time: number } | null = null;
+  private lastDefend: ResolvedDefend | null = null;
 
   constructor(opts: DuelSessionOptions) {
     this.local = opts.localPlayer;
@@ -229,6 +249,12 @@ export class DuelSession {
   /** Bookkeeping shared by local and remote resolves. */
   private afterResolve(prev: DuelState, next: DuelState): void {
     this.pending = [];
+    this.lastDefend = {
+      phrase: prev.phrase,
+      attacker: prev.attacker,
+      strikes: prev.strikes,
+      results: prev.results.map((r): Grade => r ?? 'miss'),
+    };
     this.snapshots.set(next.phrase, next);
     if (this.snapshots.size > MAX_SNAPSHOTS) {
       const oldest = this.snapshots.keys().next().value;
@@ -353,6 +379,7 @@ export class DuelSession {
 
   private onMessage(msg: Message): void {
     if (this.disposed) return;
+    if (this.onArrival !== null) this.measureArrival(msg);
     switch (msg.t) {
       case 'plant':
         return this.onPlant(msg.phrase, msg.strike);
@@ -366,6 +393,19 @@ export class DuelSession {
         return this.onState(msg.state);
       default:
         return;
+    }
+  }
+
+  private measureArrival(msg: Message): void {
+    const notify = this.onArrival;
+    if (notify === null) return;
+    const now = this.clock.now();
+    if (msg.t === 'plant') {
+      if (!Number.isFinite(msg.phrase) || typeof msg.strike !== 'object' || msg.strike === null) return;
+      if (!Number.isFinite(msg.strike.slot)) return;
+      notify('plant', now - slotTime(this.grid, msg.phrase, msg.strike.slot, this.tun));
+    } else if ((msg.t === 'commit' || msg.t === 'resolve') && Number.isFinite(msg.phrase)) {
+      notify(msg.t, now - phraseStart(this.grid, msg.phrase + 1, this.tun));
     }
   }
 
@@ -477,6 +517,21 @@ export class DuelSession {
 
     const start = phraseStart(this.grid, s.phrase, t);
     if (now < start) {
+      // A message arrived ahead of the local beat. Show the phase the local clock is still in; a count-in
+      // or intermission is only for a real act start (or the start of the match).
+      if (s.phase === 'defend') {
+        // The commit came early: the attack phrase before it is still running here, now with its final strikes.
+        return this.fill(view, 'attack', s.attacker, s.strikes, null, 0, now);
+      }
+      const done = this.lastDefend;
+      if (done !== null && now < phraseStart(this.grid, done.phrase + 1, t)) {
+        // The resolve came early: that defend phrase is still running here, with its final results.
+        return this.fill(view, 'defend', done.attacker, done.strikes, done.results, done.phrase, now);
+      }
+      if (s.phrase !== s.actFirstPhrase) {
+        // Mid-act with nothing recorded to show (a state that was replaced): the other player's phrase, bare.
+        return this.fill(view, 'defend', otherPlayer(s.attacker), [], null, 0, now);
+      }
       const left = start - now;
       view.phase =
         left <= t.countInPhrases * phraseDuration(this.grid.bpm, t) + EPS ? 'countIn' : 'intermission';
@@ -485,33 +540,40 @@ export class DuelSession {
     }
 
     const over = now >= phraseStart(this.grid, s.phrase + 1, t);
-    let phase: ViewPhase;
-    let attacker = s.attacker;
-    let showStrikes = true;
     if (s.phase === 'attack') {
-      phase = over ? 'defend' : 'attack';
-    } else if (over) {
-      phase = 'attack';
-      attacker = otherPlayer(s.attacker);
-      showStrikes = false;
-    } else {
-      phase = 'defend';
+      return over
+        ? this.fill(view, 'defend', s.attacker, s.strikes, s.results, this.defendPhrase(s), now, true)
+        : this.fill(view, 'attack', s.attacker, s.strikes, null, 0, now);
     }
+    if (over) return this.fill(view, 'attack', otherPlayer(s.attacker), [], null, 0, now);
+    return this.fill(view, 'defend', s.attacker, s.strikes, s.results, s.phrase, now, true);
+  }
 
+  /**
+   * Completes a view for `phase`. A defend phase turns the strikes into targets for defend phrase `defendPhrase`,
+   * graded from `results` (and, when `pendingToo`, from parries judged here but not yet applied).
+   */
+  private fill(
+    view: DuelView,
+    phase: ViewPhase,
+    attacker: PlayerId,
+    strikes: readonly Strike[],
+    results: readonly (Grade | null)[] | null,
+    defendPhrase: number,
+    now: number,
+    pendingToo = false,
+  ): DuelView {
     view.phase = phase;
     view.attacker = attacker;
     view.localActive = phase === 'attack' ? attacker === this.local : attacker !== this.local;
-    if (showStrikes) {
-      const d = this.defendPhrase(s);
-      view.strikes = s.strikes.map((st) => ({ ...st }));
-      if (phase === 'defend') {
-        view.targets = s.strikes.map((strike, index): TargetView => ({
-          index,
-          strike: { ...strike },
-          timeToHit: slotTime(this.grid, d, strike.slot, t) - now,
-          result: s.results[index] ?? this.pendingGrade(index),
-        }));
-      }
+    view.strikes = strikes.map((st) => ({ ...st }));
+    if (phase === 'defend' && results !== null) {
+      view.targets = strikes.map((strike, index): TargetView => ({
+        index,
+        strike: { ...strike },
+        timeToHit: slotTime(this.grid, defendPhrase, strike.slot, this.tun) - now,
+        result: results[index] ?? (pendingToo ? this.pendingGrade(index) : null),
+      }));
     }
     return view;
   }

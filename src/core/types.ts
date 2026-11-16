@@ -228,6 +228,13 @@ export interface BlobMeta {
   hash?: string;
 }
 
+/** What is known about a blob that arrived but was discarded: its kind when the metadata named a valid one. */
+export interface RejectedBlob {
+  kind: BlobKind | null;
+  /** The sender's name for it (a puppet's name on a head), when it was a string. */
+  name?: string;
+}
+
 /**
  * connecting: joining the room. waiting: in the room alone. open: paired with the other player.
  * full: the room already has two players. closed: left, or the other player left.
@@ -255,6 +262,8 @@ export interface RawLink {
   onData(cb: (from: string, data: unknown) => void): Unsubscribe;
   onBinary(cb: (from: string, data: ArrayBuffer, meta: unknown) => void): Unsubscribe;
   onBinaryProgress(cb: (from: string, fraction: number, meta: unknown) => void): Unsubscribe;
+  /** Optional. A binary payload arrived that could not be used (not bytes at all); `meta` is whatever came with it. */
+  onBinaryRejected?(cb: (from: string, meta: unknown) => void): Unsubscribe;
   onPeerJoin(cb: (peerId: string) => void): Unsubscribe;
   onPeerLeave(cb: (peerId: string) => void): Unsubscribe;
   leave(): void;
@@ -275,6 +284,8 @@ export interface Transport {
   onMessage(cb: (msg: Message) => void): Unsubscribe;
   onBlob(cb: (data: ArrayBuffer, meta: BlobMeta) => void): Unsubscribe;
   onBlobProgress(cb: (fraction: number, meta: BlobMeta) => void): Unsubscribe;
+  /** Optional. A blob arrived but was discarded (bad metadata, wrong type, over the size limit): its progress is over. */
+  onBlobRejected?(cb: (info: RejectedBlob) => void): Unsubscribe;
   onState(cb: (state: TransportState) => void): Unsubscribe;
   close(): void;
 }

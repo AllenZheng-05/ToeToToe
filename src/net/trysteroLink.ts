@@ -1,6 +1,7 @@
 import type { joinRoom as TrysteroJoinRoom } from 'trystero';
 import type { RawLink } from '../core/types';
 import { SONG_LIMITS } from '../data/songFile';
+import { toArrayBuffer } from './bytes';
 import { DEFAULT_NET_CONFIG, type NetConfig } from './netConfig';
 
 type Handler<A extends unknown[]> = (...args: A) => void;
@@ -71,16 +72,20 @@ export async function createTrysteroLinkWith(
 
   // Short action names: Trystero limits their byte length.
   const dataAction = room.makeAction<never>('d');
-  const binAction = room.makeAction<ArrayBuffer>('b');
+  // Trystero hands binary payloads over as a Uint8Array (never an ArrayBuffer); `toArrayBuffer` copes with either.
+  const binAction = room.makeAction<ArrayBuffer | ArrayBufferView>('b');
   const data = listeners<[string, unknown]>();
   const bin = listeners<[string, ArrayBuffer, unknown]>();
+  const binRejected = listeners<[string, unknown]>();
   const progress = listeners<[string, number, unknown]>();
 
   dataAction.onMessage((payload, ctx) => {
     data.emit(ctx.peerId, payload);
   });
-  binAction.onMessage((payload, ctx) => {
-    bin.emit(ctx.peerId, payload, ctx.metadata);
+  binAction.onMessage((payload: unknown, ctx) => {
+    const bytes = toArrayBuffer(payload);
+    if (bytes === null) binRejected.emit(ctx.peerId, ctx.metadata);
+    else bin.emit(ctx.peerId, bytes, ctx.metadata);
   });
   binAction.onReceiveProgress((fraction, ctx) => {
     progress.emit(ctx.peerId, fraction, ctx.metadata);
@@ -121,6 +126,7 @@ export async function createTrysteroLinkWith(
     onData: data.add,
     onBinary: bin.add,
     onBinaryProgress: progress.add,
+    onBinaryRejected: binRejected.add,
     onPeerJoin(cb) {
       // replay: peers already present are reported to this listener.
       return room.onPeerJoin((ctx) => cb(ctx.peerId), { replay: true });

@@ -3,10 +3,12 @@ import type {
   BlobMeta,
   Message,
   RawLink,
+  RejectedBlob,
   Transport,
   TransportState,
   Unsubscribe,
 } from '../core/types';
+import { toArrayBuffer } from './bytes';
 import { dispatch } from './dispatch';
 
 export interface PairingOptions {
@@ -30,16 +32,32 @@ function validMessage(v: unknown): v is Message {
   return isRecord(v) && typeof v.t === 'string';
 }
 
-function validBlobMeta(meta: unknown, data: unknown): meta is BlobMeta {
+function validBlobMeta(meta: unknown, data: ArrayBuffer | null): meta is BlobMeta {
   return (
     isRecord(meta) &&
     typeof meta.kind === 'string' &&
     (BLOB_KINDS as readonly string[]).includes(meta.kind) &&
     typeof meta.mime === 'string' &&
     typeof meta.bytes === 'number' &&
-    data instanceof ArrayBuffer &&
+    data !== null &&
     meta.bytes === data.byteLength
   );
+}
+
+/** Longest name carried along with a rejected blob (the receiver cleans it again). */
+const REJECTED_NAME_CHARS = 200;
+
+/** What can be said about a discarded blob from its (untrusted) metadata. */
+function describeRejected(meta: unknown): RejectedBlob {
+  if (!isRecord(meta)) return { kind: null };
+  const kind =
+    typeof meta.kind === 'string' && (BLOB_KINDS as readonly string[]).includes(meta.kind)
+      ? (meta.kind as BlobKind)
+      : null;
+  if (kind !== null && typeof meta.name === 'string') {
+    return { kind, name: meta.name.slice(0, REJECTED_NAME_CHARS) };
+  }
+  return { kind };
 }
 
 class PairingTransport implements Transport {
@@ -51,6 +69,7 @@ class PairingTransport implements Transport {
   private readonly msgCbs = new Set<(msg: Message) => void>();
   private readonly blobCbs = new Set<(data: ArrayBuffer, meta: BlobMeta) => void>();
   private readonly progressCbs = new Set<(fraction: number, meta: BlobMeta) => void>();
+  private readonly rejectedCbs = new Set<(info: RejectedBlob) => void>();
   private readonly stateCbs = new Set<(state: TransportState) => void>();
   private readonly unsubs: Unsubscribe[] = [];
 
@@ -63,6 +82,7 @@ class PairingTransport implements Transport {
       link.onData((from, data) => this.onData(from, data)),
       link.onBinary((from, data, meta) => this.onBinary(from, data, meta)),
       link.onBinaryProgress((from, fraction, meta) => this.onProgress(from, fraction, meta)),
+      ...(link.onBinaryRejected ? [link.onBinaryRejected((from, meta) => this.onRejected(from, meta))] : []),
       link.onPeerLeave((id) => this.onPeerLeave(id)),
       // Last: a hub may replay already present peers synchronously on registration.
       link.onPeerJoin((id) => this.onPeerJoin(id)),
@@ -96,6 +116,11 @@ class PairingTransport implements Transport {
   onBlobProgress(cb: (fraction: number, meta: BlobMeta) => void): Unsubscribe {
     this.progressCbs.add(cb);
     return () => this.progressCbs.delete(cb);
+  }
+
+  onBlobRejected(cb: (info: RejectedBlob) => void): Unsubscribe {
+    this.rejectedCbs.add(cb);
+    return () => this.rejectedCbs.delete(cb);
   }
 
   onState(cb: (state: TransportState) => void): Unsubscribe {
@@ -206,10 +231,21 @@ class PairingTransport implements Transport {
     }
   }
 
-  private onBinary(from: string, data: ArrayBuffer, meta: unknown): void {
+  private onBinary(from: string, raw: unknown, meta: unknown): void {
     if (this.state !== 'open' || from !== this.partner) return;
-    if (!validBlobMeta(meta, data)) return;
+    // Links differ in what they hand over (an ArrayBuffer or a view of one): take either.
+    const data = toArrayBuffer(raw);
+    if (data === null || !validBlobMeta(meta, data)) {
+      // Never leave the receiver waiting for something that was thrown away.
+      this.onRejected(from, meta);
+      return;
+    }
     dispatch(this.blobCbs, data, meta);
+  }
+
+  private onRejected(from: string, meta: unknown): void {
+    if (this.state !== 'open' || from !== this.partner) return;
+    dispatch(this.rejectedCbs, describeRejected(meta));
   }
 
   private onProgress(from: string, fraction: number, meta: unknown): void {

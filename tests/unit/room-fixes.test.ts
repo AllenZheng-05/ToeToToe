@@ -144,7 +144,8 @@ describe('clock offset recovery', () => {
     startMatch(r);
     const seen = onWire(r.host.transport);
     r.run(12);
-    expect(seen.filter((m) => m.t === 'ping')).toHaveLength(0); // none during the match
+    // Through the match only the slow ping (one every 4 s), never the lobby's bursts.
+    expect(seen.filter((m) => m.t === 'ping').length).toBeLessThanOrEqual(4);
     r.guest.room.resumeLobby();
     r.run(12);
     expect(seen.filter((m) => m.t === 'ping').length).toBeGreaterThanOrEqual(8 + 2);

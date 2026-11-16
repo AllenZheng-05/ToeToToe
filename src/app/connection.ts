@@ -102,6 +102,8 @@ export async function openConnection(
       name,
       tunables: app.tunables,
       isClockRunning: () => app.engine.running,
+      // Nothing is measured while drawings or songs are moving: pings queue behind them and come back late.
+      transfersActive: () => exchange?.busy ?? false,
     });
     const deps = { store: app.store, engine: app.engine, tunables: app.tunables };
     exchange = new Exchange({
@@ -130,7 +132,10 @@ export async function openConnection(
   // A rematch starts only when the friend has loaded the battle theme and nothing is still arriving;
   // when that becomes true the host looks at a waiting rematch again.
   room.setStartGate(() => exchange.view.canStart && !exchange.busy);
-  exchange.onChange(() => room.retryRematch());
+  exchange.onChange(() => {
+    room.retryRematch();
+    room.transfersChanged();
+  });
   if (theme) exchange.offerTheme(theme);
 
   let closed = false;

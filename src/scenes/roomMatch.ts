@@ -1,11 +1,38 @@
 import type { App } from '../app/app';
 import { clearRoomFromAddress } from '../app/address';
 import type { Connection } from '../app/connection';
-import type { Unsubscribe } from '../core/types';
+import { phraseStart } from '../core/beat';
+import type { DuelSession } from '../core/session';
+import type { BeatGrid, DuelState, Tunables, Unsubscribe } from '../core/types';
 import { CLICK_TRACK } from '../data/tracks';
 import type { StartInfo } from '../net/room';
 import { loadTheme, playTheme } from '../theme/theme';
 import type { MatchSetup } from './types';
+
+/** How far from either end of the break between acts a grid shift must stay clear, on top of its own size (seconds). */
+const GRID_SHIFT_MARGIN_SEC = 0.15;
+
+/**
+ * Whether the grid may be moved by `shiftSec` right now without anyone seeing it: only in the break between
+ * two acts (after the last act's final phrase, before the next act's first one has begun, with an unplanted
+ * attack phrase waiting), and with room to spare on both sides for the shift itself, so no phrase boundary
+ * crosses `now`. Pure.
+ */
+export function gridShiftIsSafe(a: {
+  state: DuelState;
+  grid: BeatGrid;
+  tunables: Tunables;
+  now: number;
+  shiftSec: number;
+}): boolean {
+  const { state, grid, tunables, now, shiftSec } = a;
+  if (state.phase !== 'attack' || state.lastActEndPhrase === null) return false;
+  if (state.phrase !== state.actFirstPhrase || state.strikes.length > 0) return false;
+  const margin = Math.abs(shiftSec) + GRID_SHIFT_MARGIN_SEC;
+  const ended = phraseStart(grid, state.lastActEndPhrase + 1, tunables);
+  const next = phraseStart(grid, state.actFirstPhrase, tunables);
+  return now - ended >= margin && next - now >= margin;
+}
 
 /** Leave the room for good and put the address bar back to the title. */
 export function leaveRoom(connection: Connection): void {
@@ -33,7 +60,8 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
       { ...CLICK_TRACK, id: 'click', title: 'Click track', bpm: info.grid.bpm },
       { store: app.store, engine, tunables: app.tunables },
     );
-  const music = (async () => playTheme(await theme, engine, info.grid.startTime))();
+  let music = (async () => playTheme(await theme, engine, info.grid.startTime))();
+  let session: DuelSession | null = null;
   const peerImages = connection.exchange.view.peerPuppet?.images ?? null;
   const peerPuppetName = connection.exchange.view.peerPuppet?.name ?? null;
 
@@ -60,7 +88,35 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
     online: true,
     peerPuppetName,
     puppets: room.localPlayer === 0 ? [null, peerImages] : [peerImages, null],
+    attach(s) {
+      session = s;
+      // How early or late the friend's plants, commits and resolves arrive: read from the debug overlay.
+      s.onArrival = (kind, lateSec) => room.arrivals.record(kind, lateSec, engine.clock.now());
+    },
+    // The guest follows the clock estimate between acts: its grid is moved (the host's never is), and the music
+    // with it, so what it hears stays on its own beat. Never mid-act.
+    tick() {
+      if (session === null || room.role !== 'guest') return;
+      const shiftSec = room.pendingGridShiftSec();
+      if (shiftSec === null) return;
+      const safe = gridShiftIsSafe({
+        state: session.state,
+        grid: info.grid,
+        tunables: app.tunables,
+        now: engine.clock.now(),
+        shiftSec,
+      });
+      if (!safe) return;
+      info.grid.startTime += shiftSec;
+      room.acceptGridShift();
+      const before = music;
+      music = (async () => {
+        (await before).stop();
+        return playTheme(await theme, engine, info.grid.startTime);
+      })();
+    },
     dispose() {
+      session = null;
       void music.then((m) => m.stop());
     },
     watchRematch(cb) {

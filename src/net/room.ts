@@ -12,6 +12,7 @@ import type {
   Tunables,
   Unsubscribe,
 } from '../core/types';
+import { ArrivalLog, newSyncStats, type SyncStats } from './syncStats';
 
 export interface StartInfo {
   /** In THIS browser's clock. */
@@ -43,6 +44,11 @@ export interface RoomOptions {
   defer?: (fn: () => void, ms: number) => void;
   /** Whether this side's audio clock is running (a suspended AudioContext is not). Default: always. */
   isClockRunning?: () => boolean;
+  /**
+   * Whether drawings or songs are moving over the link. Pings sent or answered behind a file queue come
+   * back late, so nothing is measured while this is true. Tell the room when it changes with `transfersChanged`.
+   */
+  transfersActive?: () => boolean;
 }
 
 /** Pings in a burst, and the gap between them. */
@@ -57,6 +63,14 @@ const SYNC_REPEAT_UNSYNCED_MS = 1000;
 const SYNC_RECHECK_PINGS = 3;
 /** How many of the latest samples the estimate is taken from. */
 const SYNC_WINDOW = 8;
+/** During a match: one ping this often (ordinary timers; this is not beat timing). */
+const MATCH_PING_MS = 4000;
+/** A sample is only evidence of a clock jump if its round trip is within this factor of the best recent one... */
+const COMPARABLE_RTT_FACTOR = 1.5;
+/** ...plus this many seconds. */
+const COMPARABLE_RTT_SLACK_SEC = 0.005;
+/** Pings that were sent but never answered are forgotten beyond this many. */
+const MAX_PINGS_OUT = 32;
 /** While the local audio clock is not running, look again this often. */
 const NOT_RUNNING_RETRY_MS = 250;
 /** Pings the host must have answered since its clock restarted for the guest's next ready/rematch to count as measured again. */
@@ -81,8 +95,12 @@ const DEFAULT_THEME: ThemeOffer = {
 };
 
 interface Sample {
+  /** Host clock minus this clock, seconds, assuming the same delay each way. */
   offset: number;
+  /** Seconds. The true offset lies within `offset` plus or minus half of this, whatever the delays were. */
   rtt: number;
+  /** This side's clock when the pong arrived. */
+  at: number;
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -123,6 +141,8 @@ export class Room {
   private _offsetSec = 0;
   private _rttMs: number | null = null;
   private _theme: ThemeOffer | null;
+  private readonly stats: SyncStats = newSyncStats();
+  private readonly arrivalLog = new ArrivalLog();
 
   private helloSent = false;
   private mismatch = false;
@@ -136,13 +156,23 @@ export class Room {
 
   // guest clock sync
   private syncStarted = false;
-  private lobbyPinging = true;
   private syncGen = 0;
   private nextPingId = 0;
-  private pingsSent = new Map<number, { t0: number; epoch: number }>();
+  private pingsSent = new Map<number, { t0: number; epoch: number; transferGen: number }>();
   private samples: Sample[] = [];
   private jumpSuspect: Sample | null = null;
   private hasEstimate = false;
+  /** Pings go out (lobby rate, or the slow match rate while `matchSync`). */
+  private pinging = true;
+  /** In a match: ping slowly and only record what is learned; Ready and `synced` are not touched. */
+  private matchSync = false;
+  private readonly transfersActive: () => boolean;
+  /** Bumped whenever transfers are seen to be active, so a sample that spanned one can be told. */
+  private transferGen = 0;
+  private wasTransferring = false;
+  /** Guest: the offset the match's grid was built on, and the one the grid follows now. */
+  private offsetAtStart = 0;
+  private gridOffsetSec = 0;
   private burstPongs = 0;
   private burstTarget = SYNC_PINGS;
   private burstTimedOut = false;
@@ -162,6 +192,7 @@ export class Room {
     this.name = opts.name;
     this.defer = opts.defer ?? ((fn, ms) => void setTimeout(fn, ms));
     this.isClockRunning = opts.isClockRunning ?? (() => true);
+    this.transfersActive = opts.transfersActive ?? (() => false);
     this.role = opts.transport.role;
     this.localPlayer = this.role === 'host' ? 0 : 1;
     this._synced = this.role === 'host';
@@ -194,6 +225,44 @@ export class Room {
   }
   get rttMs(): number | null {
     return this._rttMs;
+  }
+  /** What the clock estimate stands on (guest) and how the match drifted since it started; updated in place. */
+  get syncStats(): SyncStats {
+    return this.stats;
+  }
+  /** How early or late the friend's plants, commits and resolves arrived against the local beat (this match). */
+  get arrivals(): ArrivalLog {
+    return this.arrivalLog;
+  }
+  /**
+   * Guest, in a match: the shift (seconds) to add to this side's grid start so that it follows the best clock
+   * estimate now, or null when the estimate has not moved by more than `clockJumpMs` since the grid was set.
+   * The room never moves a grid itself; the match applies it between acts and then calls `acceptGridShift`.
+   */
+  pendingGridShiftSec(): number | null {
+    if (this.role !== 'guest' || !this.matchSync || !this.hasEstimate) return null;
+    const moved = this._offsetSec - this.gridOffsetSec;
+    return Math.abs(moved) * 1000 > this.tunables.clockJumpMs ? -moved : null;
+  }
+  /** The match moved its grid to follow the estimate: it is the new reference. */
+  acceptGridShift(): void {
+    this.gridOffsetSec = this._offsetSec;
+    this.stats.gridShifts++;
+  }
+  /** Drawings or songs started or stopped moving (see `transfersActive`): measure again once they stop. */
+  transfersChanged(): void {
+    if (this.transfersActive()) {
+      this.transferGen++;
+      this.wasTransferring = true;
+      return;
+    }
+    if (!this.wasTransferring) return;
+    this.wasTransferring = false;
+    this.transferGen++;
+    // The clocks may have moved while files were in the way; what was measured before them is not to be trusted.
+    if (this.role === 'guest' && this.syncStarted && !this.matchSync && !this.done) {
+      this.startBurst(SYNC_PINGS);
+    }
   }
   get theme(): ThemeOffer | null {
     return this._theme;
@@ -449,9 +518,10 @@ export class Room {
     this.samples = [];
     this.jumpSuspect = null;
     this.hasEstimate = false;
+    this.stats.samples = 0;
     this.pingsSent.clear();
-    this.markUnsynced();
-    if (this.syncStarted && this.lobbyPinging) this.startBurst(SYNC_PINGS);
+    if (!this.matchSync) this.markUnsynced();
+    if (this.syncStarted && this.pinging) this.startBurst(SYNC_PINGS);
   }
 
   /** Host: notice a stopped and restarted audio clock even when nothing else is going on. */
@@ -467,14 +537,16 @@ export class Room {
 
   private startSync(): void {
     this.syncStarted = true;
-    this.lobbyPinging = true;
+    this.pinging = true;
     this.startBurst(SYNC_PINGS);
   }
 
-  /** Back to pinging (lobby, victory screen): a fresh burst now, then the slow rate. */
+  /** Back to the lobby rate (lobby, victory screen): a fresh burst now, then the slow rate. */
   private resumeSync(): void {
     if (this.role !== 'guest') return;
-    this.lobbyPinging = true;
+    this.matchSync = false;
+    this.pinging = true;
+    this.stats.driftMs = null;
     if (this.syncStarted) this.startBurst(SYNC_PINGS);
   }
 
@@ -482,7 +554,8 @@ export class Room {
   private onResync(): void {
     this.ackPending = true;
     this.markUnsynced();
-    if (this.syncStarted && this.lobbyPinging) this.startBurst(SYNC_PINGS);
+    // In a match the slow pings find the new offset (a confirmed jump takes a fresh burst); a rematch measures again.
+    if (this.syncStarted && this.pinging && !this.matchSync) this.startBurst(SYNC_PINGS);
   }
 
   private markUnsynced(): void {
@@ -494,9 +567,19 @@ export class Room {
   }
 
   private sendPing(): void {
+    // A ping behind a file comes back late: wait until nothing is moving.
+    if (this.transfersActive()) {
+      this.transferGen++;
+      this.wasTransferring = true;
+      return;
+    }
     const id = this.nextPingId++;
     const t0 = this.clock.now();
-    this.pingsSent.set(id, { t0, epoch: this.clockEpoch });
+    this.pingsSent.set(id, { t0, epoch: this.clockEpoch, transferGen: this.transferGen });
+    if (this.pingsSent.size > MAX_PINGS_OUT) {
+      const oldest = this.pingsSent.keys().next().value;
+      if (oldest !== undefined) this.pingsSent.delete(oldest);
+    }
     this.transport.send({ t: 'ping', id, t0 });
   }
 
@@ -515,7 +598,7 @@ export class Room {
   }
 
   private pingStep(gen: number, i: number, n: number): void {
-    if (gen !== this.syncGen || this.done || !this.lobbyPinging) return;
+    if (gen !== this.syncGen || this.done || !this.pinging) return;
     if (!this.checkClock()) {
       this.defer(() => this.pingStep(gen, i, n), NOT_RUNNING_RETRY_MS);
       return;
@@ -529,11 +612,11 @@ export class Room {
   private scheduleRepeat(gen: number): void {
     this.defer(
       () => {
-        if (gen !== this.syncGen || this.done || !this.lobbyPinging) return;
+        if (gen !== this.syncGen || this.done || !this.pinging) return;
         if (this.checkClock() && gen === this.syncGen) this.sendPing();
         if (gen === this.syncGen) this.scheduleRepeat(gen);
       },
-      this._synced ? SYNC_REPEAT_MS : SYNC_REPEAT_UNSYNCED_MS,
+      this.matchSync ? MATCH_PING_MS : this._synced ? SYNC_REPEAT_MS : SYNC_REPEAT_UNSYNCED_MS,
     );
   }
 
@@ -547,34 +630,70 @@ export class Room {
     const t3 = this.clock.now();
     const rtt = t3 - sent.t0;
     if (rtt < 0) return;
+    this.stats.lastRttMs = rtt * 1000;
+    // Files were moving while this was out (or are now): the pong queued behind them, so its time means little.
+    if (sent.transferGen !== this.transferGen || this.transfersActive()) {
+      this.stats.discarded++;
+      return;
+    }
     this.burstPongs++;
-    this.addSample({ offset: t1 - (sent.t0 + t3) / 2, rtt });
+    this.addSample({ offset: t1 - (sent.t0 + t3) / 2, rtt, at: t3 });
     this.maybeFinishSync();
+  }
+
+  /** Whether this round trip is close to the best recent one, so its offset is as good a witness as the estimate. */
+  private comparable(s: Sample): boolean {
+    let best = Number.POSITIVE_INFINITY;
+    for (const x of this.samples) if (x.rtt < best) best = x.rtt;
+    return s.rtt <= best * COMPARABLE_RTT_FACTOR + COMPARABLE_RTT_SLACK_SEC;
+  }
+
+  /**
+   * Evidence that the clock jumped: a comparable sample whose offset is more than `clockJumpMs` from the
+   * estimate AND whose possible range (its offset plus or minus half its round trip) does not meet the
+   * estimate's. Slow samples and plain asymmetric delays always meet it, so they are never taken for a jump.
+   */
+  private isJumpEvidence(s: Sample): boolean {
+    const jumpSec = this.tunables.clockJumpMs / 1000;
+    const apart = Math.abs(s.offset - this._offsetSec);
+    if (apart <= jumpSec) return false;
+    const estimateRtt = (this._rttMs ?? 0) / 1000;
+    return this.comparable(s) && apart > (s.rtt + estimateRtt) / 2;
   }
 
   private addSample(s: Sample): void {
     const jumpSec = this.tunables.clockJumpMs / 1000;
-    const jumped = this.hasEstimate && Math.abs(s.offset - this._offsetSec) > jumpSec;
-    if (jumped) {
+    if (this.hasEstimate && this.isJumpEvidence(s)) {
       const prev = this.jumpSuspect;
       if (prev !== null && Math.abs(prev.offset - s.offset) <= jumpSec) {
-        // Two in a row agree on a new offset: a clock jumped. Start the estimate again from them.
-        this.samples = [prev, s];
-        this.jumpSuspect = null;
-        this.recompute();
-        if (this._synced) this.emitSynced();
+        this.confirmJump();
         return;
       }
-      // One odd sample: do not believe it yet, and hold the friend's start while it is checked.
+      // One odd sample: do not believe it yet. Check it with a few more pings; Ready is left alone.
       this.jumpSuspect = s;
-      this.markUnsynced();
       this.startBurst(SYNC_RECHECK_PINGS);
       return;
     }
-    this.jumpSuspect = null;
+    // A good sample that agrees with the estimate clears any suspicion.
+    if (this.hasEstimate && this.comparable(s)) this.jumpSuspect = null;
     this.samples.push(s);
     if (this.samples.length > SYNC_WINDOW) this.samples.splice(0, this.samples.length - SYNC_WINDOW);
     if (this.recompute() && this._synced) this.emitSynced();
+  }
+
+  /**
+   * Two comparable samples in a row agree on a new offset: a clock jumped. What was measured before is stale,
+   * so it is dropped and the estimate is taken again from a fresh burst's best round trip (not from the two
+   * samples that raised the alarm). The friend's start is held meanwhile, except in a match, where nothing waits.
+   */
+  private confirmJump(): void {
+    this.stats.jumps++;
+    this.samples = [];
+    this.jumpSuspect = null;
+    this.hasEstimate = false;
+    this.stats.samples = 0;
+    if (!this.matchSync) this.markUnsynced();
+    this.startBurst(SYNC_PINGS);
   }
 
   /** The estimate is the sample with the lowest round trip in the window. True when it changed. */
@@ -587,6 +706,11 @@ export class Room {
     this.hasEstimate = true;
     this._offsetSec = best.offset;
     this._rttMs = best.rtt * 1000;
+    this.stats.offsetMs = best.offset * 1000;
+    this.stats.estimateAt = best.at;
+    this.stats.bestRttMs = best.rtt * 1000;
+    this.stats.samples = this.samples.length;
+    if (this.matchSync) this.stats.driftMs = (this._offsetSec - this.offsetAtStart) * 1000;
     return changed;
   }
 
@@ -674,8 +798,7 @@ export class Room {
   }
 
   private beginMatch(info: StartInfo): void {
-    this.lobbyPinging = false;
-    this.syncGen++;
+    const gen = ++this.syncGen;
     this.ackPending = false;
     this.pendingStart = null;
     this.hostClockDirty = false;
@@ -684,6 +807,18 @@ export class Room {
     this._localRematch = false;
     this._peerRematch = false;
     this._peerBack = false;
+    this.arrivalLog.reset();
+    if (this.role === 'guest') {
+      // Keep measuring through the match, slowly. What is learned is recorded; the grid only follows it between acts.
+      this.matchSync = true;
+      this.pinging = true;
+      this.offsetAtStart = this._offsetSec;
+      this.gridOffsetSec = this._offsetSec;
+      this.jumpSuspect = null;
+      this.stats.driftMs = 0;
+      this.stats.gridShifts = 0;
+      if (this.syncStarted) this.scheduleRepeat(gen);
+    }
     this.emit({ type: 'start', info });
     this.emitReady();
     this.emitRematch();

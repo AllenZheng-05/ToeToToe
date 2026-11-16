@@ -4,8 +4,35 @@ import type { SessionEvent } from '../core/session';
 import type { BeatGrid, Tunables } from '../core/types';
 import { BotDriver } from '../net/bot';
 import type { Room } from '../net/room';
+import { ARRIVAL_KINDS, type Arrival, type ArrivalKind } from '../net/syncStats';
 import type { BotSetup } from '../scenes/botSetupModel';
 import { ScriptRunner, type ScriptEvent } from './script';
+
+/** What `window.__ttt.sync` returns (a fresh copy on every read). */
+export interface SyncReport {
+  role: 'host' | 'guest';
+  offsetMs: number;
+  /** Seconds since the sample the estimate stands on was taken; null before there is one. */
+  ageSec: number | null;
+  bestRttMs: number | null;
+  lastRttMs: number | null;
+  samples: number;
+  discarded: number;
+  jumps: number;
+  /** Estimate now minus the estimate the match started on, ms; null outside a match. */
+  driftMs: number | null;
+  gridShifts: number;
+  arrivals: {
+    latestMs: Record<ArrivalKind, number | null>;
+    /** The largest (most late) value seen this match, per kind. */
+    worstLateMs: Record<ArrivalKind, number | null>;
+    /** The smallest (most early; negative) value seen this match, per kind. */
+    worstEarlyMs: Record<ArrivalKind, number | null>;
+    counts: Record<ArrivalKind, number>;
+    /** The last 64, oldest first. */
+    recent: Arrival[];
+  };
+}
 
 declare global {
   interface Window {
@@ -28,6 +55,12 @@ declare global {
       bot: { level: string; pattern: string | null; accuracy: number; bravoRate: number } | null;
       /** The friend's puppet as received in the room: its name, a checksum of the head's pixels, and how many sets have arrived. */
       peerPuppet: { name: string; headChecksum: number; version: number } | null;
+      /**
+       * Room matches: how well the two clocks agree. The estimate (host clock minus this clock) and its age, the
+       * best and latest round trip, samples in the window, drift since the match started, and for each `plant`,
+       * `commit` and `resolve` received how many ms it came before (negative) or after the local beat it refers to.
+       */
+      sync: SyncReport | null;
       /** The room's battle theme as this side sees it. */
       theme: {
         status: string;
@@ -76,6 +109,69 @@ function botInfo(app: App): NonNullable<Window['__ttt']>['bot'] {
   };
 }
 
+function finiteOrNull(n: number): number | null {
+  return Number.isFinite(n) ? n : null;
+}
+
+export function syncReport(app: App): SyncReport | null {
+  const room = app.connection?.room;
+  if (!room) return null;
+  const st = room.syncStats;
+  const log = room.arrivals;
+  const worst = log.worst();
+  const now = app.hasEngine ? app.engine.clock.now() : Number.NaN;
+  return {
+    role: room.role,
+    offsetMs: st.offsetMs,
+    ageSec: finiteOrNull(now - st.estimateAt),
+    bestRttMs: finiteOrNull(st.bestRttMs),
+    lastRttMs: finiteOrNull(st.lastRttMs),
+    samples: st.samples,
+    discarded: st.discarded,
+    jumps: st.jumps,
+    driftMs: st.driftMs,
+    gridShifts: st.gridShifts,
+    arrivals: {
+      latestMs: log.latest(),
+      worstLateMs: worst.late,
+      worstEarlyMs: worst.early,
+      counts: { plant: log.counts[0] ?? 0, commit: log.counts[1] ?? 0, resolve: log.counts[2] ?? 0 },
+      recent: log.recent(),
+    },
+  };
+}
+
+/** A short text for the overlay: one number per kind, "latest (worst early .. worst late)". */
+function arrivalText(room: Room): string {
+  const log = room.arrivals;
+  const parts: string[] = [];
+  ARRIVAL_KINDS.forEach((kind, k) => {
+    const latest = log.latestMs[k] as number;
+    if (Number.isNaN(latest)) {
+      parts.push(`${kind} -`);
+      return;
+    }
+    const early = log.worstEarlyMs[k] as number;
+    const late = log.worstLateMs[k] as number;
+    parts.push(`${kind} ${latest.toFixed(0)} (${early.toFixed(0)}..${late.toFixed(0)})`);
+  });
+  return parts.join('  ');
+}
+
+function syncText(app: App, room: Room): string {
+  const st = room.syncStats;
+  if (room.role === 'host') return 'host: the guest measures';
+  const age = app.hasEngine ? app.engine.clock.now() - st.estimateAt : Number.NaN;
+  const off = Number.isFinite(st.estimateAt)
+    ? `${st.offsetMs.toFixed(1)} ms (${age.toFixed(1)} s old)`
+    : 'none yet';
+  const rtt = Number.isFinite(st.bestRttMs)
+    ? `${st.bestRttMs.toFixed(0)} best / ${st.lastRttMs.toFixed(0)} last ms`
+    : '-';
+  const drift = st.driftMs === null ? '-' : `${st.driftMs.toFixed(1)} ms`;
+  return `offset ${off}  rtt ${rtt}  n ${st.samples}  drift ${drift}  moved ${st.gridShifts}  dropped ${st.discarded}`;
+}
+
 function themeInfo(app: App): NonNullable<Window['__ttt']>['theme'] {
   const ex = app.connection?.exchange;
   if (!ex) return null;
@@ -93,6 +189,8 @@ function themeInfo(app: App): NonNullable<Window['__ttt']>['theme'] {
 }
 
 const FPS_SMOOTHING = 0.1;
+/** The sync rows are rewritten at most this often (milliseconds of frame time; display only). */
+const SYNC_TEXT_MS = 250;
 const SCRIPT_POLL_MS = 4;
 
 function row(parent: HTMLElement, label: string): HTMLElement {
@@ -128,6 +226,7 @@ export function createDebugOverlay(app: App): void {
       botSetup: app.botSetup,
       botPuppetId: app.match?.botPuppetId ?? null,
       peerPuppet: peerPuppetInfo(app),
+      sync: syncReport(app),
       theme: themeInfo(app),
       bot: botInfo(app),
     }),
@@ -157,6 +256,8 @@ export function createDebugOverlay(app: App): void {
   const fpsEl = row(panel, 'fps');
   const offset = row(panel, 'input offset');
   const link = row(panel, 'connection');
+  const sync = row(panel, 'clock sync');
+  const arrivals = row(panel, 'arrival ms');
 
   const accRow = document.createElement('label');
   accRow.className = 'dbg-row';
@@ -217,6 +318,7 @@ export function createDebugOverlay(app: App): void {
 
   let fps = 60;
   let last = 0;
+  let lastSyncText = 0;
   app.onFrame((info: FrameInfo) => {
     if (last > 0 && !info.hidden) {
       const dt = info.timestamp - last;
@@ -269,6 +371,16 @@ export function createDebugOverlay(app: App): void {
     } else {
       const transport = app.match?.transport;
       set(link, transport ? `${transport.state}  ${transport.role}` : '-');
+    }
+
+    // Sync quality, a few times a second (building the text is not free).
+    if (conn && info.timestamp - lastSyncText > SYNC_TEXT_MS) {
+      lastSyncText = info.timestamp;
+      set(sync, syncText(app, conn.room));
+      set(arrivals, arrivalText(conn.room));
+    } else if (!conn) {
+      set(sync, '-');
+      set(arrivals, '-');
     }
 
     const bot = app.match?.bot;

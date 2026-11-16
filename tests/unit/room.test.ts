@@ -131,7 +131,7 @@ describe('Room clock sync', () => {
     expect(synced.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('keeps pinging every few seconds in the lobby and stops at start', () => {
+  it('keeps pinging every few seconds in the lobby, and only slowly (no bursts) through a match', () => {
     const r = rig();
     const pings = () => {
       let n = 0;
@@ -150,7 +150,9 @@ describe('Room clock sync', () => {
     r.run(0.2);
     const atStart = count();
     r.run(12);
-    expect(count()).toBe(atStart);
+    // One ping every 4 s through the match: it keeps the drift on record and never plays a burst.
+    expect(count() - atStart).toBeGreaterThanOrEqual(2);
+    expect(count() - atStart).toBeLessThanOrEqual(4);
   });
 });
 
