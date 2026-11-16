@@ -1,5 +1,6 @@
 /**
- * Dev page for the stage art kit: /dev/artkit.html?scene=attack|defend|menu|rig
+ * Dev page for the stage art kit: /dev/artkit.html?scene=attack|defend|menu|rig|owners
+ * (owners: both players' strikes and targets side by side, local = teal with the round outline, opponent = pink, scalloped)
  * Extra query parameters: sweep=1 (rig: animate the local tip), time=SECONDS (freeze the fake clock),
  * beat=N (freeze the fake clock at beat N of the defend loop), tipx / tipy (rig: fixed tip, design px).
  */
@@ -8,19 +9,28 @@ import { Application, Container } from 'pixi.js';
 import { DEFAULT_TUNABLES } from '../src/core/tunables';
 import type { DuelView, Strike, TargetView } from '../src/core/types';
 import { PLAY_RECT, fitStage } from '../src/stage/layout';
-import { createMarkTextures, loadMarkFonts, MarksView } from '../src/stage/art/marks';
+import {
+  createMarkTextures,
+  createPlayerMarkTextures,
+  loadMarkFonts,
+  MarksView,
+} from '../src/stage/art/marks';
+import { distinctColours, puppetMarkColour, type PixelImage, type Rgb } from '../src/puppet/colour';
+import { PARTS } from '../src/puppet/parts';
 import { loadPresetImages, PuppetView } from '../src/stage/art/puppetView';
 import { createTheatre, loadTheatreTextures, SUN_DUEL, SUN_MENU } from '../src/stage/art/theatre';
 import type { Point } from '../src/puppet/parts';
 import { PRESETS } from '../src/puppet/presets';
 import { solveRig } from '../src/puppet/rig';
 
-type Scene = 'attack' | 'defend' | 'menu' | 'rig';
+type Scene = 'attack' | 'defend' | 'menu' | 'rig' | 'owners';
 
 const params = new URLSearchParams(location.search);
 const sceneParam = params.get('scene');
 const scene: Scene =
-  sceneParam === 'defend' || sceneParam === 'menu' || sceneParam === 'rig' ? sceneParam : 'attack';
+  sceneParam === 'defend' || sceneParam === 'menu' || sceneParam === 'rig' || sceneParam === 'owners'
+    ? sceneParam
+    : 'attack';
 const sweep = params.get('sweep') === '1';
 const frozenTime = params.has('time') ? Number(params.get('time')) : null;
 const frozenBeat = params.has('beat') ? Number(params.get('beat')) : null;
@@ -91,6 +101,21 @@ function targetsAt(beat: number): TargetView[] {
   });
 }
 
+function readPixels(src: CanvasImageSource, width: number, height: number): PixelImage {
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  const g = c.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+  g.drawImage(src, 0, 0, width, height);
+  return { pixels: g.getImageData(0, 0, width, height).data, width, height };
+}
+
+const colourOf = (i: { head: CanvasImageSource; sock: CanvasImageSource }): Rgb =>
+  puppetMarkColour({
+    sock: readPixels(i.sock, PARTS.sock.width, PARTS.sock.height),
+    head: readPixels(i.head, PARTS.head.width, PARTS.head.height),
+  });
+
 async function main(): Promise<void> {
   const app = new Application();
   await app.init({
@@ -123,10 +148,23 @@ async function main(): Promise<void> {
   ]);
   const teal = new PuppetView(tealImages, 1);
   const pink = new PuppetView(pinkImages, -1);
-  const marks = new MarksView(createMarkTextures());
+  const colours = distinctColours(colourOf(tealImages), colourOf(pinkImages));
+  const sets = [createPlayerMarkTextures(colours[0], true), createPlayerMarkTextures(colours[1], false)] as [
+    ReturnType<typeof createPlayerMarkTextures>,
+    ReturnType<typeof createPlayerMarkTextures>,
+  ];
+  const neutral = createMarkTextures();
+  const makeMarks = (): MarksView => {
+    const m = new MarksView(neutral);
+    m.setPlayers(sets, colours);
+    return m;
+  };
+  const marks = makeMarks();
+  // The owners scene: four views so each owner's strikes and targets sit in their own row.
+  const rows = scene === 'owners' ? [marks, makeMarks(), makeMarks(), makeMarks()] : [marks];
 
   theatre.middle.addChild(pink.container, teal.container);
-  root.addChild(theatre.back, theatre.middle, theatre.front, marks.container);
+  root.addChild(theatre.back, theatre.middle, theatre.front, ...rows.map((m) => m.container));
 
   let tealTip: Point = { ...IDLE_TIPS[0] };
   const pinkTip: Point = { ...IDLE_TIPS[1] };
@@ -174,6 +212,37 @@ async function main(): Promise<void> {
     } else if (scene === 'defend') {
       const beat = frozenBeat ?? (time / BEAT_SEC) % DEFEND_CYCLE_BEATS;
       marks.update(baseView({ phase: 'defend', targets: targetsAt(beat) }), DEFAULT_TUNABLES, BPM);
+    } else if (scene === 'owners') {
+      const xs = [300, 440, 580, 720, 860];
+      const row = (y: number): Strike[] => xs.map((x, i) => ({ ...toFraction(x, y), slot: i }));
+      const targets = (y: number): TargetView[] =>
+        row(y).map((strike, index) => ({
+          index,
+          strike,
+          timeToHit: 10,
+          result: index === 3 ? 'bravo' : index === 4 ? 'miss' : null,
+        }));
+      const R = rows as MarksView[];
+      (R[0] as MarksView).update(
+        baseView({ phase: 'attack', attacker: 0, strikes: row(250) }),
+        DEFAULT_TUNABLES,
+        BPM,
+      );
+      (R[1] as MarksView).update(
+        baseView({ phase: 'attack', attacker: 1, strikes: row(340) }),
+        DEFAULT_TUNABLES,
+        BPM,
+      );
+      (R[2] as MarksView).update(
+        baseView({ phase: 'defend', attacker: 0, localActive: false, targets: targets(440) }),
+        DEFAULT_TUNABLES,
+        BPM,
+      );
+      (R[3] as MarksView).update(
+        baseView({ phase: 'defend', attacker: 1, localActive: true, targets: targets(540) }),
+        DEFAULT_TUNABLES,
+        BPM,
+      );
     } else {
       marks.update(baseView({ phase: 'countIn' }), DEFAULT_TUNABLES, BPM);
     }

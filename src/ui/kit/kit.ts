@@ -262,25 +262,38 @@ export interface PlayerPlateHandle {
   setWinded(w: boolean): void;
   /** Extra: show the small "you" tag next to the local player's name. */
   setYou(you: boolean): void;
+  /** Whose turn it is: a role tag ("Attacking", "Parrying", "Watching", or a waiting note) and a lit or dimmed plate. */
+  setTurn(role: PlateRole | null, text: string): void;
+  /** The colour of this player's marks: a small swatch by the name and the tape edge of the lit plate (CSS colour). */
+  setMarkColour(css: string): void;
 }
 
-/** Test ids: `panel-`, `name-`, `health-`, `stamina-`, `winded-` plus the suffix. */
+export type PlateRole = 'attacking' | 'parrying' | 'watching' | 'waiting';
+
+/** Test ids: `panel-`, `name-`, `health-`, `stamina-`, `winded-`, `turn-`, `swatch-` plus the suffix. */
 export function playerPlate(o: { align: 'left' | 'right'; testIdSuffix: string }): PlayerPlateHandle {
   const s = o.testIdSuffix;
   const root = el('div', 'tt-plate', undefined, { 'data-align': o.align });
   root.dataset.testid = `panel-${s}`;
+  const tape = el('span', 'tt-plate-tape', undefined, { 'aria-hidden': 'true' });
   const head = el('div', 'tt-plate-head');
   const name = labelStrip('');
   name.dataset.testid = `name-${s}`;
+  const swatch = el('span', 'tt-plate-swatch', undefined, { 'aria-hidden': 'true' });
+  swatch.dataset.testid = `swatch-${s}`;
+  swatch.hidden = true;
+  const turn = el('span', 'tt-tag tt-plate-turn');
+  turn.dataset.testid = `turn-${s}`;
+  turn.hidden = true;
   const you = el('span', 'tt-tag tt-plate-you', 'you');
   you.hidden = true;
   const winded = el('span', 'tt-tag tt-plate-winded', 'Winded');
   winded.dataset.testid = `winded-${s}`;
   winded.hidden = true;
-  head.append(name, you, winded);
+  head.append(swatch, name, you, turn, winded);
   const health = bar('health', { align: o.align, testId: `health-${s}` });
   const stamina = bar('stamina', { align: o.align, testId: `stamina-${s}` });
-  root.append(head, health.root, stamina.root);
+  root.append(tape, head, health.root, stamina.root);
   return {
     root,
     health,
@@ -294,6 +307,21 @@ export function playerPlate(o: { align: 'left' | 'right'; testIdSuffix: string }
     },
     setYou(y) {
       you.hidden = !y;
+    },
+    setTurn(role, text) {
+      turn.hidden = role === null;
+      if (role === null) {
+        delete turn.dataset.value;
+        delete root.dataset.turn;
+        return;
+      }
+      if (turn.textContent !== text) turn.textContent = text;
+      turn.dataset.value = role;
+      root.dataset.turn = role;
+    },
+    setMarkColour(css) {
+      root.style.setProperty('--mark', css);
+      swatch.hidden = false;
     },
   };
 }

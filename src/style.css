@@ -798,6 +798,22 @@ body {
   font-size: 14px;
 }
 
+.hud-turn-line {
+  font-size: 18px;
+  margin-top: 2px;
+}
+
+.hud-turn-line[hidden] {
+  display: none;
+}
+
+.hud-next-up {
+  font-size: 13px;
+  line-height: 1.3;
+  margin-top: -2px;
+  border: 2px solid var(--ink);
+}
+
 .hud-grade-slot {
   position: absolute;
   transform: translate(-50%, -50%);

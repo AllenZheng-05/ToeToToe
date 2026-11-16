@@ -1,5 +1,6 @@
 import { slotsPerPhrase } from '../core/beat';
 import type { DuelView, Grade, PlayerId, Tunables } from '../core/types';
+import { rgbCss, type Rgb } from '../puppet/colour';
 import { playToDesign } from '../stage/layout';
 import {
   actCounter,
@@ -10,6 +11,7 @@ import {
   playerPlate,
   tapeNote,
   tornNote,
+  type PlateRole,
   type PlayerPlateHandle,
 } from './kit/kit';
 
@@ -40,6 +42,69 @@ export function bannerText(view: DuelView, names: readonly [string, string]): st
     default:
       return '';
   }
+}
+
+export type TurnRole = PlateRole;
+
+const ROLE_TEXT: Record<TurnRole, string> = {
+  attacking: 'Attacking',
+  parrying: 'Parrying',
+  watching: 'Watching',
+  waiting: 'Up next',
+};
+
+/**
+ * What each player is doing now, index = PlayerId: the acting one attacks or parries, the other watches;
+ * before a round (count-in, intermission) both are waiting; null once the match is over.
+ */
+export function turnRoles(view: DuelView): [TurnRole, TurnRole] | null {
+  const make = (attackerRole: TurnRole, otherRole: TurnRole): [TurnRole, TurnRole] =>
+    view.attacker === 0 ? [attackerRole, otherRole] : [otherRole, attackerRole];
+  switch (view.phase) {
+    case 'attack':
+      return make('attacking', 'watching');
+    case 'defend':
+      return make('watching', 'parrying');
+    case 'countIn':
+    case 'intermission':
+      return ['waiting', 'waiting'];
+    default:
+      return null;
+  }
+}
+
+/** The plate tag text for a role. Before a round the one who attacks first says so. */
+export function turnTagText(view: DuelView, id: PlayerId, role: TurnRole): string {
+  if (role === 'waiting') return view.attacker === id ? 'Attacks first' : 'Parries second';
+  return ROLE_TEXT[role];
+}
+
+/** The line under the count-in number or the intermission banner: who attacks first. '' at other times. */
+export function turnLine(view: DuelView, names: readonly [string, string]): string {
+  if (view.phase !== 'countIn' && view.phase !== 'intermission') return '';
+  return view.attacker === view.localPlayer ? 'You attack first' : `${names[view.attacker]} attacks first`;
+}
+
+/** The phrase-dots caption: what is happening now, for the local player. '' outside the two phrases. */
+export function phraseCaption(view: DuelView, names: readonly [string, string]): string {
+  const mine = view.attacker === view.localPlayer;
+  const defender: PlayerId = view.attacker === 0 ? 1 : 0;
+  if (view.phase === 'attack')
+    return (mine ? 'Your attack' : `${names[view.attacker]}'s attack: watch`).toUpperCase();
+  if (view.phase === 'defend') return (mine ? `${names[defender]} parries` : 'Your parry').toUpperCase();
+  return '';
+}
+
+/** What comes next for the local player, shown in the last beat of a phrase. '' at other times. */
+export function nextUpNote(view: DuelView, names: readonly [string, string], tunables: Tunables): string {
+  if (view.phase !== 'attack' && view.phase !== 'defend') return '';
+  if (view.slotPosition < slotsPerPhrase(tunables) - tunables.slotsPerBeat) return '';
+  const local = view.localPlayer;
+  const opp: PlayerId = local === 0 ? 1 : 0;
+  if (view.phase === 'attack')
+    return view.attacker === local ? `${names[opp]} parries next` : 'Get ready to parry';
+  // After a defend phrase the roles swap: the parrier plants next.
+  return view.attacker === local ? `${names[opp]} attacks next` : 'Your attack next';
 }
 
 /** Where in the tile cycle a banner starts, so ATTACK! and PARRY! look as they do in the mocks. */
@@ -122,6 +187,9 @@ export class Hud {
   private missRun = 0;
   private heckleCount: Record<HeckleKind, number> = { act: 0, streak: 0, misses: 0 };
   private you: PlayerId | null = null;
+  private readonly turnNote: HTMLElement;
+  private readonly nextNote: HTMLElement;
+  private turnKey = '';
 
   constructor(
     parent: HTMLElement,
@@ -139,11 +207,25 @@ export class Hud {
     this.actWins = el('span', 'tt-tag hud-act-wins', undefined, 'act-wins');
     actRow.append(this.act.root, this.actWins);
     this.banner = el('div', 'hud-banner', actBox, 'banner');
+    // Who attacks first, under the count-in number and the intermission banner.
+    this.turnNote = tapeNote('', { rotate: -1 });
+    this.turnNote.classList.add('hud-turn-line');
+    this.turnNote.dataset.testid = 'turn-line';
+    this.turnNote.hidden = true;
+    actBox.appendChild(this.turnNote);
 
     const dotsBox = el('div', 'hud-dots', this.root);
     this.dotsCaption = labelStrip('');
     this.dotsCaption.classList.add('hud-dots-caption');
-    dotsBox.append(this.dotsCaption, this.dots.root);
+    this.nextNote = el('span', 'tt-tag hud-next-up', dotsBox, 'next-up');
+    this.nextNote.style.visibility = 'hidden';
+    dotsBox.append(this.dotsCaption, this.dots.root, this.nextNote);
+  }
+
+  /** Each player's mark colour (index = PlayerId): a swatch by the name and the tape edge of the lit plate. */
+  setMarkColours(colours: readonly [Rgb, Rgb]): void {
+    this.plates[0].handle.setMarkColour(rgbCss(colours[0]));
+    this.plates[1].handle.setMarkColour(rgbCss(colours[1]));
   }
 
   update(view: DuelView): void {
@@ -184,6 +266,7 @@ export class Hud {
     this.banner.dataset.value = text;
     this.banner.dataset.phase = view.phase;
 
+    this.updateTurn(view);
     this.updateDim(view);
     this.updateDots(view);
     this.updateStreak(view);
@@ -282,6 +365,22 @@ export class Hud {
     }
   }
 
+  /** Role tags on the plates and the "who attacks first" line. Reads only the view. */
+  private updateTurn(view: DuelView): void {
+    const roles = turnRoles(view);
+    const line = turnLine(view, this.names);
+    const key = `${roles?.join(',') ?? ''}|${view.attacker}|${line}`;
+    if (key === this.turnKey) return;
+    this.turnKey = key;
+    for (const id of [0, 1] as const) {
+      const role = roles?.[id] ?? null;
+      this.plates[id].handle.setTurn(role, role === null ? '' : turnTagText(view, id, role));
+    }
+    this.turnNote.hidden = line === '';
+    this.setText(this.turnNote, line);
+    this.turnNote.dataset.value = line;
+  }
+
   private updateDots(view: DuelView): void {
     const slots = slotsPerPhrase(this.tunables);
     const attacking = view.phase === 'attack';
@@ -295,9 +394,11 @@ export class Hud {
     const current = live ? Math.min(slots - 1, Math.max(0, Math.floor(view.slotPosition))) : -1;
     this.dots.set({ slots, current, filled, tone: attacking ? 'attack' : defending ? 'defend' : 'idle' });
 
-    const who = view.attacker === view.localPlayer ? 'YOUR' : `${this.names[view.attacker].toUpperCase()}'S`;
-    this.setText(this.dotsCaption, live ? `${who} ATTACK, IN HALF-BEATS` : '');
+    this.setText(this.dotsCaption, phraseCaption(view, this.names));
     this.dotsCaption.style.visibility = live ? 'visible' : 'hidden';
+    const next = nextUpNote(view, this.names, this.tunables);
+    this.setText(this.nextNote, next);
+    this.nextNote.style.visibility = next === '' ? 'hidden' : 'visible';
   }
 
   private updateStreak(view: DuelView): void {

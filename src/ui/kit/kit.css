@@ -300,6 +300,64 @@
   background: repeating-linear-gradient(90deg, var(--blue) 0 4px, #6d8de0 4px 8px);
 }
 
+/* Whose turn: a colour-coded role tag, a swatch of the player's mark colour, and a taped, lifted plate for the
+   player acting now (the other plate is dimmed). --mark is set per plate by the HUD. */
+.tt-plate {
+  --mark: var(--yellow);
+  transition:
+    transform 0.18s ease-out,
+    opacity 0.18s linear;
+}
+.tt-plate-tape {
+  align-self: stretch;
+  height: 10px;
+  background: transparent;
+  clip-path: polygon(0% 12%, 3% 0%, 97% 8%, 100% 0%, 99% 92%, 96% 100%, 4% 90%, 0% 100%);
+}
+.tt-plate[data-turn='attacking'] .tt-plate-tape,
+.tt-plate[data-turn='parrying'] .tt-plate-tape {
+  background: var(--mark);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.tt-plate[data-turn='attacking'],
+.tt-plate[data-turn='parrying'] {
+  transform: translateY(-6px);
+}
+.tt-plate[data-turn='watching'] {
+  opacity: 0.68;
+}
+.tt-plate-swatch {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--mark);
+  border: 3px solid var(--white);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.tt-plate-swatch[hidden] {
+  display: none;
+}
+.tt-plate-turn {
+  padding: 2px 8px 0 8px;
+  font-size: 13px;
+  line-height: 1.3;
+  border: 2px solid var(--ink);
+}
+.tt-plate-turn[data-value='attacking'] {
+  background: var(--red);
+  color: var(--white);
+}
+.tt-plate-turn[data-value='parrying'] {
+  background: var(--blue);
+  color: var(--white);
+}
+.tt-plate-turn[data-value='watching'],
+.tt-plate-turn[data-value='waiting'] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
 /* ---------- phrase dots ---------- */
 .tt-dots {
   display: flex;

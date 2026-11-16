@@ -206,3 +206,71 @@ test('final design: title and duel screenshots', async ({ page }) => {
   // Both HUD parts were readable while the duel ran.
   await expect(page.getByTestId('banner')).toBeVisible();
 });
+
+interface TurnProbe {
+  phase: string;
+  local: number;
+  active: boolean;
+  slot: number;
+  strikes: number;
+  pending: number;
+  turn: [string | null, string | null];
+  line: string | null;
+  caption: string | null;
+}
+
+function turnProbe(page: Page): Promise<TurnProbe | null> {
+  return page.evaluate(() => {
+    const v = window.__ttt?.session?.view();
+    if (!v) return null;
+    const val = (id: string): string | null =>
+      document.querySelector(`[data-testid="${id}"]`)?.getAttribute('data-value') ?? null;
+    return {
+      phase: v.phase,
+      local: v.localPlayer,
+      active: v.localActive,
+      slot: v.slotPosition,
+      strikes: v.strikes.length,
+      pending: v.targets.filter((t) => t.result === null && t.timeToHit > 0).length,
+      turn: [val('turn-0'), val('turn-1')],
+      line: document.querySelector('[data-testid="turn-line"]')?.textContent ?? null,
+      caption: document.querySelector('.hud-dots-caption')?.textContent ?? null,
+    };
+  });
+}
+
+test('whose turn it is is shown before and during a round', async ({ page }) => {
+  await page.goto('/?debug=1&bot=1&autoplay=1&bpm=100&seed=3&botAccuracy=0.9&res=1');
+  await startBot(page);
+  await page.getByTestId('debug-toggle').click();
+
+  // Count-in: both plates are waiting, and a line says who attacks first.
+  await expect(page.getByTestId('banner')).toHaveAttribute('data-phase', 'countIn');
+  await expect(page.getByTestId('turn-0')).toHaveAttribute('data-value', 'waiting');
+  await expect(page.getByTestId('turn-1')).toHaveAttribute('data-value', 'waiting');
+  await expect(page.getByTestId('turn-line')).toHaveText(/ attacks? first$/);
+  await page.mouse.move(820, 300);
+  await page.screenshot({ path: 'test-results/screens/turns-countin.png' });
+
+  let attack = false;
+  let parry = false;
+  const deadline = Date.now() + 80_000;
+  while (!(attack && parry)) {
+    if (Date.now() > deadline) throw new Error('never saw both the local attack and the local parry');
+    const p = await turnProbe(page);
+    if (p && !attack && p.phase === 'attack' && p.active && p.strikes >= 3 && p.slot >= 5 && p.slot <= 6.5) {
+      attack = true;
+      expect(p.turn[p.local]).toBe('attacking');
+      expect(p.turn[1 - p.local]).toBe('watching');
+      await page.screenshot({ path: 'test-results/screens/turns-attack.png' });
+    } else if (p && !parry && p.phase === 'defend' && p.active && p.slot >= 1 && p.pending >= 2) {
+      parry = true;
+      expect(p.turn[p.local]).toBe('parrying');
+      expect(p.turn[1 - p.local]).toBe('watching');
+      await page.screenshot({ path: 'test-results/screens/turns-parry.png' });
+    }
+    await page.waitForTimeout(25);
+  }
+  await expect(page.getByTestId('swatch-0')).toBeVisible();
+  await expect(page.getByTestId('swatch-1')).toBeVisible();
+});

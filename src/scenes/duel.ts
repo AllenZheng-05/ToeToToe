@@ -3,11 +3,13 @@ import { watchAudio } from '../app/audioGate';
 import { holdWakeLock } from '../app/wakeLock';
 import { createSfx } from '../audio/sfx';
 import { DuelSession, type SessionEvent } from '../core/session';
-import type { Unsubscribe } from '../core/types';
+import type { PlayerId, Unsubscribe } from '../core/types';
 import { attachPointerInput } from '../input/pointer';
 import { DuelRenderer } from '../stage/duelRenderer';
 import { loadPresetImages } from '../stage/art/puppetView';
 import { playRectOnScreen, playToDesign } from '../stage/layout';
+import { distinctColours, puppetMarkColour, type PixelImage, type Rgb } from '../puppet/colour';
+import { PARTS } from '../puppet/parts';
 import { PRESETS } from '../puppet/presets';
 import { Hud } from '../ui/hud';
 import { decodeDrawing, loadSelectedPuppet } from '../workshop/selection';
@@ -17,6 +19,39 @@ import { VictoryScene } from './victory';
 
 /** How long "Your friend left" stays up before returning to the title (UI only, not on the beat). */
 const LEFT_NOTICE_MS = 2200;
+
+/** Reads a drawing's pixels once through a canvas (set-up only, never per frame). */
+function readPixels(src: CanvasImageSource, width: number, height: number): PixelImage {
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  const g = c.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+  g.drawImage(src, 0, 0, width, height);
+  return { pixels: g.getImageData(0, 0, width, height).data, width, height };
+}
+
+/** Each puppet's mark colour from its sock and head, the opponent's shifted if too close to the local player's. */
+function markColoursOf(
+  images: readonly [PuppetImagesSource, PuppetImagesSource],
+  local: PlayerId,
+): [Rgb, Rgb] {
+  const own = (i: PuppetImagesSource): Rgb => {
+    try {
+      return puppetMarkColour({
+        sock: readPixels(i.sock, PARTS.sock.width, PARTS.sock.height),
+        head: readPixels(i.head, PARTS.head.width, PARTS.head.height),
+      });
+    } catch {
+      return puppetMarkColour({
+        sock: { pixels: new Uint8ClampedArray(0), width: 0, height: 0 },
+        head: { pixels: new Uint8ClampedArray(0), width: 0, height: 0 },
+      });
+    }
+  };
+  const mine = own(images[local]);
+  const [m, theirs] = distinctColours(mine, own(images[local === 0 ? 1 : 0]));
+  return local === 0 ? [m, theirs] : [theirs, m];
+}
 
 export class DuelScene implements Scene {
   private session: DuelSession | null = null;
@@ -138,7 +173,12 @@ export class DuelScene implements Scene {
       return;
     }
     if (this.disposed || this.renderer !== renderer) return;
-    renderer.setPuppets(local === 0 ? [mine, theirs] : [theirs, mine]);
+    const both: [PuppetImagesSource, PuppetImagesSource] = local === 0 ? [mine, theirs] : [theirs, mine];
+    renderer.setPuppets(both);
+    // Once per match: the colour each player's marks wear.
+    const colours = markColoursOf(both, local);
+    renderer.setMarkColours(colours, local);
+    this.hud?.setMarkColours(colours);
     // Kept on the setup so the victory screen stands the same puppets on the stage.
     setup.puppets = local === 0 ? [mine, theirs] : [theirs, mine];
   }
