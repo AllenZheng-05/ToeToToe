@@ -224,6 +224,29 @@ export type TransportState = 'connecting' | 'waiting' | 'open' | 'full' | 'close
 
 export type Unsubscribe = () => void;
 
+/**
+ * A raw many-peer room underneath a Transport: Trystero in production, BroadcastChannel across tabs,
+ * an in-memory hub in tests. `src/net/pairing.ts` turns a RawLink into a two-player Transport.
+ * Payloads are JSON values; binary goes separately so it can be chunked with progress.
+ */
+export interface RawLink {
+  readonly selfId: string;
+  /** `to: null` broadcasts to everyone currently in the room. */
+  send(to: string | null, data: unknown): void;
+  sendBinary(
+    to: string,
+    data: ArrayBuffer,
+    meta: unknown,
+    onProgress?: (fraction: number) => void,
+  ): Promise<void>;
+  onData(cb: (from: string, data: unknown) => void): Unsubscribe;
+  onBinary(cb: (from: string, data: ArrayBuffer, meta: unknown) => void): Unsubscribe;
+  onBinaryProgress(cb: (from: string, fraction: number, meta: unknown) => void): Unsubscribe;
+  onPeerJoin(cb: (peerId: string) => void): Unsubscribe;
+  onPeerLeave(cb: (peerId: string) => void): Unsubscribe;
+  leave(): void;
+}
+
 /** The only way the game talks to the other player. Implementations: peer (Trystero), loopback, bot. */
 export interface Transport {
   readonly state: TransportState;
