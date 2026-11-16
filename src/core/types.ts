@@ -40,6 +40,8 @@ export interface Tunables {
   goodWindowMs: number;
   /** A click on a target outside the good window but inside this one is a Miss; outside it the click is ignored. */
   missWindowMs: number;
+  /** How long after the Good window closes a strike waits before it is auto-missed, so a click stamped in time but handled a little late still counts. */
+  inputGraceMs: number;
   /** Target radius as a fraction of play-area width. */
   targetRadius: number;
   targetRadiusTouch: number;

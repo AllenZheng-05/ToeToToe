@@ -162,7 +162,8 @@ export class BotDriver {
     const bravo = this.rng() < this.options.bravoRate;
     const u = this.rng();
     // Bravo: inside 80% of the Bravo window. Otherwise strictly between the Bravo edge and 80% of the Good window,
-    // which leaves room for one frame of delay before the session's auto-miss closes the window.
+    // which keeps clear of the window edges. (The session's input grace now absorbs a late-handled frame, so the margin
+    // is only for edge safety; it is left at 80%.)
     const goodReach = WINDOW_SAFETY * t.goodWindowMs;
     const magnitudeMs = bravo
       ? u * WINDOW_SAFETY * t.bravoWindowMs

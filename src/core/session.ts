@@ -70,6 +70,10 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
+function isGrade(v: unknown): v is Grade {
+  return v === 'bravo' || v === 'good' || v === 'miss';
+}
+
 function validStrikes(v: unknown): v is Strike[] {
   return (
     Array.isArray(v) &&
@@ -101,6 +105,8 @@ export class DuelSession {
   private listeners = new Set<(e: SessionEvent) => void>();
   private unsubscribe: Unsubscribe;
   private disposed = false;
+  /** An attacker-to-be's click that landed just before the attack phrase, planted once the defend phrase resolves. */
+  private held: { phrase: number; x: number; y: number; time: number } | null = null;
 
   constructor(opts: DuelSessionOptions) {
     this.local = opts.localPlayer;
@@ -178,7 +184,7 @@ export class DuelSession {
 
     // Local player defends this turn.
     const d = this.defendPhrase(s);
-    const goodSec = t.goodWindowMs / 1000;
+    const goodSec = (t.goodWindowMs + t.inputGraceMs) / 1000;
     let progressed = false;
     for (let i = 0; i < s.strikes.length; i++) {
       const strike = this._state.strikes[i];
@@ -218,6 +224,11 @@ export class DuelSession {
     this.afterResolve(prev, next);
     this.transport.send({ t: 'resolve', phrase: prev.phrase, results });
     if (this.local === 0) this.transport.send({ t: 'state', state: next });
+    const held = this.held;
+    this.held = null;
+    if (held && next.phase === 'attack' && next.attacker === this.local && next.phrase === held.phrase) {
+      this.localPlant(held.x, held.y, held.time);
+    }
   }
 
   /** Bookkeeping shared by local and remote resolves. */
@@ -276,7 +287,14 @@ export class DuelSession {
     if (s.phase === 'attack' && s.attacker === this.local) {
       this.localPlant(x, y, time);
     } else if (s.phase !== 'matchOver' && s.attacker !== this.local) {
-      this.localParry(x, y, time, touch);
+      const parried = this.localParry(x, y, time, touch);
+      if (!parried && s.phase === 'defend' && this.held === null) {
+        const adjusted = time - this.inputOffsetMs / 1000;
+        const ns = nearestSlot(this.grid, adjusted, this.tun);
+        if (ns.phrase === s.phrase + 1 && ns.slot === 0) {
+          this.held = { phrase: ns.phrase, x, y, time };
+        }
+      }
     } else {
       this.emit({ type: 'rejected', reason: 'notYourTurn' });
     }
@@ -306,13 +324,14 @@ export class DuelSession {
     this.emit({ type: 'planted', player: this.local, strike: { ...strike }, index });
   }
 
-  private localParry(x: number, y: number, time: number, touch: boolean): void {
+  /** Returns true when the click was judged as a parry. */
+  private localParry(x: number, y: number, time: number, touch: boolean): boolean {
     const s = this._state;
     const t = this.tun;
     const adjusted = time - this.inputOffsetMs / 1000;
     const d = this.defendPhrase(s);
-    if (adjusted < phraseStart(this.grid, d, t) - t.missWindowMs / 1000) return;
-    if (adjusted >= phraseStart(this.grid, d + 1, t)) return;
+    if (adjusted < phraseStart(this.grid, d, t) - t.missWindowMs / 1000) return false;
+    if (adjusted >= phraseStart(this.grid, d + 1, t)) return false;
 
     let bestIndex = -1;
     let bestGrade: Grade | null = null;
@@ -330,8 +349,9 @@ export class DuelSession {
         bestOffset = offsetMs;
       }
     }
-    if (bestIndex < 0 || bestGrade === null) return;
+    if (bestIndex < 0 || bestGrade === null) return false;
     this.judgeLocal(bestIndex, bestGrade, bestOffset, d);
+    return true;
   }
 
   // ------------------------------------------------------------ incoming
@@ -372,8 +392,10 @@ export class DuelSession {
   private onCommit(phrase: number, strikes: Strike[]): void {
     const s = this._state;
     if (s.attacker === this.local || s.phase !== 'attack' || phrase !== s.phrase) return;
-    if (!validStrikes(strikes)) return;
-    if (!deepEqual(strikes, s.strikes)) {
+    if (!validStrikes(strikes)) {
+      // Keep the strikes already known from plant messages so the match does not stall.
+      this.emit({ type: 'desync' });
+    } else if (!deepEqual(strikes, s.strikes)) {
       const fixed = strikes.map((st): Strike => ({ slot: st.slot, x: st.x, y: st.y }));
       this._state = { ...s, strikes: fixed, results: fixed.map(() => null) };
       this.emit({ type: 'desync' });
@@ -389,6 +411,7 @@ export class DuelSession {
   private onParry(phrase: number, index: number, grade: Grade): void {
     const s = this._state;
     if (s.attacker !== this.local) return;
+    if (!isGrade(grade)) return;
     const next = this.reduce({ type: 'parry', phrase, index, grade });
     if (next === s) return;
     this._state = next;
@@ -401,7 +424,7 @@ export class DuelSession {
     if (Array.isArray(results)) {
       for (let i = 0; i < results.length; i++) {
         const grade = results[i];
-        if (grade) this.onParry(phrase, i, grade);
+        if (isGrade(grade)) this.onParry(phrase, i, grade);
       }
     }
     const prev = this._state;
@@ -419,6 +442,7 @@ export class DuelSession {
     if (snap && deepEqual(snap, state)) return;
     this._state = state;
     this.pending = [];
+    this.held = null;
     this.emit({ type: 'desync' });
   }
 

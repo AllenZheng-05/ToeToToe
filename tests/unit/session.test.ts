@@ -23,6 +23,7 @@ interface Rig {
   at: (t: number) => void;
   tun: ReturnType<typeof createTunables>;
   host: ReturnType<typeof createLoopbackPair>['host'];
+  guest: ReturnType<typeof createLoopbackPair>['guest'];
 }
 
 function rig(latencySec = 0, tweak: Partial<ReturnType<typeof createTunables>> = {}): Rig {
@@ -61,7 +62,19 @@ function rig(latencySec = 0, tweak: Partial<ReturnType<typeof createTunables>> =
     s1.update();
     pair.pump();
   };
-  return { clock, s0, s1, e0, e1, wire, pump: () => pair.pump(), at, tun, host: pair.host };
+  return {
+    clock,
+    s0,
+    s1,
+    e0,
+    e1,
+    wire,
+    pump: () => pair.pump(),
+    at,
+    tun,
+    host: pair.host,
+    guest: pair.guest,
+  };
 }
 
 /** Click at an absolute time: moves the clock there first. */
@@ -256,7 +269,9 @@ describe('a turn', () => {
     r.at(4.0);
     r.at(4.0 + 0.1); // exactly on the Good edge: not yet a miss
     expect(r.s1.state.results[0]).toBeNull();
-    r.at(4.11);
+    r.at(4.0 + 0.16); // exactly on the grace edge: not yet a miss
+    expect(r.s1.state.results[0]).toBeNull();
+    r.at(4.17);
     expect(r.s1.state.results).toEqual(['miss', null, null, null, null]);
     expect(r.s1.state.players[1].health).toBe(90);
     expect(r.s0.state.results[0]).toBe('miss'); // the attacker heard about it
@@ -639,5 +654,117 @@ describe('catch-up and dispose', () => {
     r.s1.update();
     expect(r.e1.length).toBe(n);
     r.s1.dispose(); // idempotent
+  });
+});
+
+describe('input grace', () => {
+  it('a click stamped +90 ms but handled at +130 ms is a Good', () => {
+    const r = rig();
+    click(r, r.s0, 2.0);
+    r.at(4.0);
+    r.at(4.13);
+    expect(r.s1.state.results).toEqual([null]);
+    r.s1.pointerDown(0.5, 0.5, 4.09, false);
+    expect(r.s1.state.results).toEqual(['good']);
+    expect(r.s1.state.players[1].health).toBe(100);
+  });
+
+  it('a click stamped +130 ms is a Miss grade, and nothing is judged after the grace has passed', () => {
+    const r = rig();
+    click(r, r.s0, 2.0);
+    r.at(4.0);
+    r.at(4.13);
+    r.s1.pointerDown(0.5, 0.5, 4.13, false);
+    expect(r.s1.state.results).toEqual(['miss']);
+
+    const q = rig();
+    click(q, q.s0, 2.0);
+    q.at(4.0);
+    q.at(4.17); // grace over: auto-missed
+    q.s1.pointerDown(0.5, 0.5, 4.09, false);
+    expect(q.e1.filter((e) => e.type === 'judged')).toHaveLength(1);
+    expect(q.s1.state.results).toEqual(['miss']);
+  });
+});
+
+describe('a click just before the attack phrase', () => {
+  // s0 plants in phrase 1; s1 defends phrase 2 (4..6 s) and attacks phrase 3 from 6 s.
+  it('is held and planted in slot 0 once the defend phrase resolves, and the other side sees it', () => {
+    const r = rig();
+    click(r, r.s0, 2.0);
+    r.at(4.0);
+    click(r, r.s1, 5.96, 0.3, 0.3); // 40 ms early of phrase 3
+    expect(r.s1.state.strikes).toHaveLength(1);
+    expect(r.s1.state.phase).toBe('defend');
+    r.at(6.0);
+    for (const s of [r.s0, r.s1]) {
+      expect(s.state.phase).toBe('attack');
+      expect(s.state.phrase).toBe(3);
+      expect(s.state.strikes).toEqual([{ slot: 0, x: 0.3, y: 0.3 }]);
+    }
+    expect(r.e0.some((e) => e.type === 'planted' && e.player === 1 && e.strike.slot === 0)).toBe(true);
+    const iResolve = r.wire.findIndex((m) => m.t === 'resolve');
+    const iPlant = r.wire.findIndex((m) => m.t === 'plant' && m.phrase === 3);
+    expect(iResolve).toBeGreaterThanOrEqual(0);
+    expect(iPlant).toBeGreaterThan(iResolve);
+  });
+
+  it('is dropped without error when the act ends at that resolve', () => {
+    const r = rig(0, { startHealth: 10 });
+    click(r, r.s0, 2.0);
+    r.at(4.0);
+    click(r, r.s1, 5.96, 0.3, 0.3);
+    r.at(6.0);
+    expect(r.e1.some((e) => e.type === 'actOver')).toBe(true);
+    expect(r.e1.some((e) => e.type === 'planted' && e.player === 1)).toBe(false);
+    expect(r.s1.state.strikes).toEqual([]);
+    expect(r.s0.state.strikes).toEqual([]);
+  });
+
+  it('stays a parry when it is a Good parry of a slot-7 target', () => {
+    const r = rig(0, { goodWindowMs: 140 });
+    click(r, r.s0, 3.75); // slot 7 of phrase 1
+    r.at(4.0);
+    click(r, r.s1, 5.88); // +130 ms of the slot-7 target, but the nearest slot is slot 0 of phrase 3
+    expect(r.s1.state.results).toEqual(['good']);
+    r.at(6.0);
+    expect(r.s1.state.strikes).toEqual([]);
+    expect(r.s0.state.strikes).toEqual([]);
+    expect(r.e1.some((e) => e.type === 'planted' && e.player === 1)).toBe(false);
+  });
+});
+
+describe('untrusted input', () => {
+  it('ignores a parry with an unknown grade', () => {
+    const r = rig();
+    click(r, r.s0, 2.0);
+    r.at(4.0);
+    r.guest.send({ t: 'parry', phrase: 2, index: 0, grade: 'bogus' as never });
+    r.pump();
+    expect(r.s0.state.results).toEqual([null]);
+    expect(r.e0.some((e) => e.type === 'judged')).toBe(false);
+  });
+
+  it('treats unknown grades in a resolve as absent', () => {
+    const r = rig();
+    click(r, r.s0, 2.0);
+    r.at(2.1);
+    r.at(4.0);
+    r.guest.send({ t: 'resolve', phrase: 2, results: ['bogus', 7, null] as never });
+    r.pump();
+    expect(r.e0.some((e) => e.type === 'judged')).toBe(false);
+    expect(r.s0.state.phase).toBe('attack');
+    expect(r.s0.state.phrase).toBe(3);
+    expect(r.s0.state.players[1].health).toBe(90); // unjudged strike resolved as a miss
+  });
+
+  it('a commit with invalid strikes still starts the defend phrase with the known strikes and reports desync', () => {
+    const r = rig();
+    click(r, r.s0, 2.0, 0.2, 0.2);
+    r.at(2.1);
+    r.host.send({ t: 'commit', phrase: 1, strikes: [{ slot: 'x', x: 0, y: 0 }] as never });
+    expect(r.s1.state.phase).toBe('defend');
+    expect(r.s1.state.strikes).toEqual([{ slot: 0, x: 0.2, y: 0.2 }]);
+    expect(r.e1.filter((e) => e.type === 'desync')).toHaveLength(1);
   });
 });
