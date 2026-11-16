@@ -1,14 +1,13 @@
+import { cleanText, DEFAULT_NAME, MAX_NAME_LENGTH } from '../core/text';
 import { SETTINGS, type Store } from '../data/store';
 
 /** Where the name lived before it moved into the store's settings. Read once, then removed. */
 const LEGACY_NAME_KEY = 'toetotoe.name';
-export const DEFAULT_NAME = 'Player';
-export const MAX_NAME_LENGTH = 20;
+export { DEFAULT_NAME, MAX_NAME_LENGTH };
 
-/** Trim, cap the length and fall back to the default. */
+/** Trim, drop control and direction-override characters, cap the length and fall back to the default. */
 export function cleanName(raw: string): string {
-  const name = raw.trim().slice(0, MAX_NAME_LENGTH);
-  return name === '' ? DEFAULT_NAME : name;
+  return cleanText(raw, MAX_NAME_LENGTH, DEFAULT_NAME);
 }
 
 function legacyName(): string | null {

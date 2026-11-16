@@ -96,12 +96,19 @@ export async function openConnection(
   let exchange: Exchange;
   try {
     transport = createPairingTransport({ link, role });
-    room = new Room({ transport, clock: app.engine.clock, name, tunables: app.tunables });
+    room = new Room({
+      transport,
+      clock: app.engine.clock,
+      name,
+      tunables: app.tunables,
+      isClockRunning: () => app.engine.running,
+    });
     const deps = { store: app.store, engine: app.engine, tunables: app.tunables };
     exchange = new Exchange({
       transport,
       room,
       role,
+      tunables: app.tunables,
       getPuppet: async () => {
         const p = await loadSelectedPuppet(app.store);
         const [head, sock, sword] = await Promise.all([
@@ -120,6 +127,10 @@ export async function openConnection(
     link.leave();
     throw err;
   }
+  // A rematch starts only when the friend has loaded the battle theme and nothing is still arriving;
+  // when that becomes true the host looks at a waiting rematch again.
+  room.setStartGate(() => exchange.view.canStart && !exchange.busy);
+  exchange.onChange(() => room.retryRematch());
   if (theme) exchange.offerTheme(theme);
 
   let closed = false;

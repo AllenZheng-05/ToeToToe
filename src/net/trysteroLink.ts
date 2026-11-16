@@ -1,4 +1,6 @@
+import type { joinRoom as TrysteroJoinRoom } from 'trystero';
 import type { RawLink } from '../core/types';
+import { SONG_LIMITS } from '../data/songFile';
 import { DEFAULT_NET_CONFIG, type NetConfig } from './netConfig';
 
 type Handler<A extends unknown[]> = (...args: A) => void;
@@ -18,14 +20,37 @@ function listeners<A extends unknown[]>() {
   };
 }
 
+/** Slack on top of the largest song for the wrapping Trystero adds (metadata, framing). */
+const RECEIVE_SLACK_BYTES = 64 * 1024;
+/** The most Trystero will accept in one incoming message: the song limit plus slack (its default is 256 MiB). */
+export const MAX_RECEIVE_BYTES = SONG_LIMITS.maxBytes + RECEIVE_SLACK_BYTES;
+
+/** Room errors that mean this player will not get connected (as opposed to one peer misbehaving). */
+const FATAL_ERRORS: readonly string[] = [
+  'relay-failed',
+  'peer-connect-failed',
+  'handshake-failed',
+  'identity-failed',
+];
+
+export type JoinRoomFn = typeof TrysteroJoinRoom;
+
 /** Joins the Trystero room for this code. The strategy module is loaded with a dynamic import. */
 export async function createTrysteroLink(
   roomCode: string,
   config: NetConfig = DEFAULT_NET_CONFIG,
 ): Promise<RawLink> {
-  // Only 'nostr' ships in the installed Trystero; `trystero` re-exports it.
+  // Only 'nostr' ships in the installed Trystero; the trystero package re-exports it.
   const { joinRoom } = await import('trystero');
+  return createTrysteroLinkWith(joinRoom, roomCode, config);
+}
 
+/** The same with the join function passed in, so tests can stand in for Trystero. */
+export async function createTrysteroLinkWith(
+  joinRoom: JoinRoomFn,
+  roomCode: string,
+  config: NetConfig = DEFAULT_NET_CONFIG,
+): Promise<RawLink> {
   const turnConfig = config.iceServers?.map((s) => ({
     urls: s.urls,
     ...(s.username !== undefined ? { username: s.username } : {}),
@@ -35,6 +60,9 @@ export async function createTrysteroLink(
   const room = joinRoom(
     {
       appId: config.appId,
+      // The game does not use identities, and nothing bigger than a song is ever sent.
+      identity: 'none',
+      maxReceiveBytes: MAX_RECEIVE_BYTES,
       ...(config.relayUrls ? { relayConfig: { urls: config.relayUrls } } : {}),
       ...(turnConfig && turnConfig.length > 0 ? { turnConfig } : {}),
     },
@@ -58,6 +86,14 @@ export async function createTrysteroLink(
     progress.emit(ctx.peerId, fraction, ctx.metadata);
   });
 
+  const failedCbs = listeners<[string]>();
+  let failure: string | null = null;
+  room.onError((err) => {
+    if (failure !== null || !FATAL_ERRORS.includes(err.code)) return;
+    failure = err.message || err.code;
+    failedCbs.emit(failure);
+  });
+
   const self = await room.getSelf();
   const noop = (): void => {};
 
@@ -65,9 +101,10 @@ export async function createTrysteroLink(
     selfId: self.peerId,
     send(to, payload) {
       try {
-        dataAction.send(payload as never, { target: to }).catch(noop);
+        return dataAction.send(payload as never, { target: to }).catch(noop);
       } catch {
         // peer just left; ignore
+        return undefined;
       }
     },
     async sendBinary(to, buffer, meta, onProgress) {
@@ -93,6 +130,16 @@ export async function createTrysteroLink(
     },
     leave() {
       room.leave().catch(noop);
+    },
+    get failed() {
+      return failure !== null;
+    },
+    onFailed(cb) {
+      if (failure !== null) {
+        cb(failure);
+        return () => {};
+      }
+      return failedCbs.add(cb);
     },
   };
 }

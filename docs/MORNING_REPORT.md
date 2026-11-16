@@ -6,7 +6,7 @@ _Written 16 November 2026 at the end of the unattended run. `docs/ROADMAP.md` ha
 
 All seven milestones are built and committed on `main`. Nothing has been pushed, deployed or logged in to.
 
-The game runs end to end in a real browser (headless Chromium): a bot match, and two pages playing each other through a same-browser link that stands in for the network. The checks pass: typecheck, lint, 445 unit tests, the production build and 25 browser tests.
+The game runs end to end in a real browser (headless Chromium): a bot match, and two pages playing each other through a same-browser link that stands in for the network. The checks pass: typecheck, lint, 530 unit tests, the production build and 25 browser tests.
 
 Three things have never run, because each needs something the run was not allowed to touch:
 
@@ -14,7 +14,7 @@ Three things have never run, because each needs something the run was not allowe
 - **Supabase.** The migration and the client are written; no project exists to run them against. The game does not need it.
 - **How it feels.** Timing windows, the sound, latency on real speakers, drawing on a phone: nobody has played it.
 
-A final review by the opus reviewer found 2 blockers and 7 should-fix items in the networking and lobby code. **The fixes are in progress as this is written (brief `docs/briefs/8-review-fixes.md`); see "Review findings" below for whether they landed.**
+A final review by the opus reviewer found 2 blockers and 7 should-fix items in the networking and lobby code. All were fixed and tested afterwards (see "Review findings"); the fixes themselves have not had a second review.
 
 ## How to run
 
@@ -50,13 +50,16 @@ pnpm dev            # http://localhost:5173
 
 ## Review findings
 
-The final opus review covered everything not reviewed earlier. Its findings, all given to a builder as brief 8:
+The final opus review covered everything not reviewed earlier. Every finding was fixed by a builder (brief `docs/briefs/8-review-fixes.md`), each with a unit test, and all checks pass afterwards. The fixes have not been reviewed a second time, and the clock-sync rewrite in particular deserves a real two-machine test.
 
-- **Blocker: tempo change on a loaded theme.** If the host nudged the tempo or first beat of a song the guest had already loaded, the guest kept the old values and its music ran off the beat.
-- **Blocker: clock sync never recovered.** A paused audio clock (phone switching apps, the sound not yet unlocked) left the two clocks misaligned for the rest of the session, and rematches never re-synced.
-- **Should fix:** the friend's name and the host's tunables, theme values and strikes were not range-checked; the receive limit for files was the library's 256 MiB default; a song's length was checked only after decoding; a rematch could skip the Ready and theme checks; a failed connection or stalled transfer showed nothing and could lock Start.
+- **Blocker, fixed: tempo change on a loaded theme.** If the host nudged the tempo or first beat of a song the guest had already loaded, the guest kept the old values and its music ran off the beat. The guest now retunes its copy and confirms again before Start is allowed.
+- **Blocker, fixed: clock sync never recovered.** A paused audio clock (phone switching apps, sound not yet unlocked) left the two clocks misaligned for the rest of the session, and rematches never re-synced. The sync now uses the best of the last 8 samples, restarts after a jump, ignores a stopped clock, and re-measures before every start and rematch (waiting at most 3.5 s).
+- **Fixed: unchecked values from the other player.** Names, tunables, theme values, strikes and host state are now range-checked; a bad message is dropped.
+- **Fixed: file limits.** The receive limit is 10 MiB plus a margin instead of the library's 256 MiB; a song's length is read before decoding.
+- **Fixed: rematch.** It can no longer skip the Ready and theme checks, and the victory screen says when the friend has gone back to the room.
+- **Fixed: silent failures.** A failed connection shows "Could not connect" with a retry (also after 20 s of no answer); a stalled transfer is dropped after 30 s so Start cannot stay locked.
 
-_Status of the fixes: see the last commits and `docs/ROADMAP.md`. If the line "Review fixes (brief 8)" there is not ticked, these are still open and the blockers matter for any real two-player test._
+Three new tunables came out of this: `startLeadSec` (3), `ringLeadBeats` (2), `clockJumpMs` (50). One new message, `resync`, lets the host ask the guest to re-measure the clocks.
 
 ## Not verified (needs you)
 
@@ -79,7 +82,7 @@ Nothing was parked after three attempts. Known rough edges left as they are:
 
 ## Decisions you might disagree with
 
-All 34 are in `docs/DECISIONS.md` with reasons. The ones most worth a look:
+All 37 are in `docs/DECISIONS.md` with reasons. The ones most worth a look:
 
 **Rules the brief left open**
 

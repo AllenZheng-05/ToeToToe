@@ -1,5 +1,6 @@
 import type { AudioEngine, PlayHandle } from '../audio/engine';
 import { clickLoopSeconds, createClickBuffer } from '../audio/click';
+import { themeBeatOk } from '../core/tunables';
 import type { Tunables, ThemeOffer } from '../core/types';
 import {
   checkSongBytes,
@@ -37,6 +38,51 @@ export interface ThemeDeps {
   engine: AudioEngine;
   tunables: Tunables;
   house?: TrackSource;
+  /** Reads a song's length from its metadata without decoding it. Null when unknown. Defaults to an audio element. */
+  probeDuration?: (data: ArrayBuffer, mime: string) => Promise<number | null>;
+}
+
+/** How long to wait for an audio element to report a song's length before decoding it anyway. */
+const PROBE_TIMEOUT_MS = 4000;
+
+/**
+ * The song's length from an audio element's metadata (preload = 'metadata' on a Blob URL, revoked afterwards),
+ * so a very long file is refused before its decoded samples (hundreds of MB) are ever made.
+ * Null when the browser cannot say within a few seconds; the caller then decodes and checks the length after.
+ */
+export function probeSongDuration(data: ArrayBuffer, mime: string): Promise<number | null> {
+  if (
+    typeof Audio === 'undefined' ||
+    typeof URL === 'undefined' ||
+    typeof URL.createObjectURL !== 'function'
+  ) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    let url: string | null = null;
+    const audio = new Audio();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const finish = (duration: number | null): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      audio.removeAttribute('src');
+      audio.load();
+      if (url !== null) URL.revokeObjectURL(url);
+      resolve(duration !== null && Number.isFinite(duration) && duration > 0 ? duration : null);
+    };
+    try {
+      url = URL.createObjectURL(new Blob([data], { type: mime }));
+      audio.preload = 'metadata';
+      audio.addEventListener('loadedmetadata', () => finish(audio.duration), { once: true });
+      audio.addEventListener('error', () => finish(null), { once: true });
+      timer = setTimeout(() => finish(null), PROBE_TIMEOUT_MS);
+      audio.src = url;
+    } catch {
+      finish(null);
+    }
+  });
 }
 
 /** Error with the rejection reason attached; the message is the plain text for the player. */
@@ -87,9 +133,16 @@ export function withBeat(
 async function decodeChecked(
   data: ArrayBuffer,
   engine: AudioEngine,
+  probe: ThemeDeps['probeDuration'] = probeSongDuration,
 ): Promise<{ buffer: AudioBuffer; type: SongType }> {
   const checked = checkSongBytes(data);
   if (!checked.ok) throw rejection(checked.reason);
+  // Length first, from the metadata alone; when that cannot be read, decode and check afterwards.
+  const probed = await probe(data, mimeForSongType(checked.type)).catch((): null => null);
+  if (probed !== null) {
+    const early = checkSongDuration(probed);
+    if (!early.ok) throw rejection(early.reason);
+  }
   let buffer: AudioBuffer;
   try {
     // decodeAudioData detaches the array it is given; decode a copy.
@@ -113,7 +166,7 @@ export async function loadTheme(info: TrackInfo, deps: ThemeDeps): Promise<Loade
   } catch {
     throw new ThemeError('That song could not be loaded.');
   }
-  const { buffer, type } = await decodeChecked(data, deps.engine);
+  const { buffer, type } = await decodeChecked(data, deps.engine, deps.probeDuration);
   const { loopStart, loopEnd } = loopRegion(
     buffer.duration,
     info.bpm,
@@ -161,11 +214,7 @@ function validOffer(o: ThemeOffer, t: Tunables): boolean {
     typeof o.id === 'string' &&
     typeof o.title === 'string' &&
     typeof o.hash === 'string' &&
-    Number.isFinite(o.bpm) &&
-    o.bpm >= t.minBpm &&
-    o.bpm <= t.maxBpm &&
-    Number.isFinite(o.firstBeatOffset) &&
-    o.firstBeatOffset >= 0
+    themeBeatOk('upload', o.bpm, o.firstBeatOffset, t)
   );
 }
 
@@ -179,7 +228,7 @@ export async function loadOfferedSong(
   deps: ThemeDeps,
 ): Promise<LoadedTheme> {
   if (!validOffer(offer, deps.tunables)) throw new ThemeError('That song offer is not valid.');
-  const { buffer, type } = await decodeChecked(data, deps.engine);
+  const { buffer, type } = await decodeChecked(data, deps.engine, deps.probeDuration);
   const hash = await sha256Hex(data);
   if (hash !== offer.hash) throw new ThemeError('The song did not arrive intact.');
   const info: TrackInfo = {

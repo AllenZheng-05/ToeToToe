@@ -30,6 +30,9 @@ describe('tunables', () => {
       windedResetStamina: 50,
       actDurationSec: 90,
       actsToWin: 2,
+      clockJumpMs: 50,
+      startLeadSec: 3,
+      ringLeadBeats: 2,
     });
   });
 

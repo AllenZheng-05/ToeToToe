@@ -1,7 +1,7 @@
 import type { App } from '../app/app';
 import type { DuelSession } from '../core/session';
 import type { PlayerId, Unsubscribe } from '../core/types';
-import { labelStrip, letterTiles, tornNote } from '../ui/kit/kit';
+import { button, labelStrip, letterTiles, tornNote } from '../ui/kit/kit';
 import { menuButton, node, quip, sceneRoot, signContent, tagline } from '../ui/menu';
 import { DuelScene } from './duel';
 import { LobbyScene } from './lobby';
@@ -39,6 +39,8 @@ export class VictoryScene implements Scene {
   private leaveTimer: number | null = null;
   private puppets: MenuPuppets | null = null;
   private exited = false;
+  /** The rematch began, so the room is not left behind with a request still open. */
+  private rematchStarted = false;
 
   constructor(
     private readonly app: App,
@@ -67,6 +69,14 @@ export class VictoryScene implements Scene {
     rematchNote.dataset.testid = 'rematch-status';
     rematchNote.hidden = true;
     note.append(audience, rematchNote);
+    // Shown with the note when the friend has gone back to the room.
+    const noteBack = button('Back to the room', {
+      variant: 'small',
+      testId: 'note-back-to-room',
+      onClick: () => goToRoom(),
+    });
+    noteBack.hidden = true;
+    note.appendChild(noteBack);
     const setNote = (text: string): void => {
       rematchNote.textContent = text;
       rematchNote.hidden = text === '';
@@ -94,7 +104,10 @@ export class VictoryScene implements Scene {
         rematch.disabled = true;
         if (setup.online) setNote('Waiting for your friend…');
         void next().then(
-          (match) => this.app.go(new DuelScene(this.app, match)),
+          (match) => {
+            this.rematchStarted = true;
+            return this.app.go(new DuelScene(this.app, match));
+          },
           () => {
             rematch.disabled = false;
           },
@@ -104,18 +117,13 @@ export class VictoryScene implements Scene {
     );
     rematch.disabled = !setup.rematch;
     const room = this.app.connection;
-    const backToRoom = menuButton(
-      'Back to the room',
-      'back-to-room',
-      'secondary',
-      () => {
-        if (!room) return;
-        void this.app.go(
-          new LobbyScene(this.app, { code: room.code, role: room.role, name: room.name, connection: room }),
-        );
-      },
-      'side',
-    );
+    const goToRoom = (): void => {
+      if (!room) return;
+      void this.app.go(
+        new LobbyScene(this.app, { code: room.code, role: room.role, name: room.name, connection: room }),
+      );
+    };
+    const backToRoom = menuButton('Back to the room', 'back-to-room', 'secondary', goToRoom, 'side');
     backToRoom.hidden = !(setup.online && room);
     const back = menuButton(
       'Back to title',
@@ -142,7 +150,12 @@ export class VictoryScene implements Scene {
       if (setup.watchRematch) {
         this.cleanups.push(
           setup.watchRematch((s) => {
-            if (s.local) setNote(s.peer ? '' : 'Waiting for your friend…');
+            // The friend left for the room: a rematch cannot start from here, so say so and offer the way back.
+            const gone = s.peerBack === true && !s.peer;
+            noteBack.hidden = !gone;
+            rematch.disabled = !setup.rematch || gone || s.local;
+            if (gone) setNote('Your friend went back to the room');
+            else if (s.local) setNote(s.peer ? '' : 'Waiting for your friend…');
             else setNote(s.peer ? `${peer} wants a rematch` : '');
           }),
         );
@@ -188,6 +201,8 @@ export class VictoryScene implements Scene {
   exit(): void {
     this.exited = true;
     for (const off of this.cleanups.splice(0)) off();
+    // Leaving for anywhere but a rematch: withdraw the request and drop the listeners waiting for the start.
+    if (!this.rematchStarted) this.setup.cancelRematch?.();
     if (this.leaveTimer !== null) window.clearTimeout(this.leaveTimer);
     this.leaveTimer = null;
     if (this.session && this.app.session === this.session) this.app.session = null;

@@ -1,5 +1,14 @@
 import { nearestSlot, phraseDuration, phraseStart, positionAt, slotTime } from './beat';
-import { defenderOf, initialDuelState, judgeParry, otherPlayer, plantError, reduceDuel } from './duel';
+import {
+  checkedStrikes,
+  defenderOf,
+  initialDuelState,
+  judgeParry,
+  otherPlayer,
+  parseDuelState,
+  plantError,
+  reduceDuel,
+} from './duel';
 import type {
   BeatGrid,
   Clock,
@@ -72,20 +81,6 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 function isGrade(v: unknown): v is Grade {
   return v === 'bravo' || v === 'good' || v === 'miss';
-}
-
-function validStrikes(v: unknown): v is Strike[] {
-  return (
-    Array.isArray(v) &&
-    v.every(
-      (s) =>
-        typeof s === 'object' &&
-        s !== null &&
-        Number.isFinite((s as Strike).slot) &&
-        Number.isFinite((s as Strike).x) &&
-        Number.isFinite((s as Strike).y),
-    )
-  );
 }
 
 /** One player's side of a match. No timers: the owner calls update() every frame. */
@@ -377,6 +372,7 @@ export class DuelSession {
   private onPlant(phrase: number, strike: Strike): void {
     const s = this._state;
     if (s.attacker === this.local) return;
+    if (typeof strike !== 'object' || strike === null) return;
     const next = this.reduce({ type: 'plant', phrase, strike });
     if (next === s) return;
     this._state = next;
@@ -392,12 +388,12 @@ export class DuelSession {
   private onCommit(phrase: number, strikes: Strike[]): void {
     const s = this._state;
     if (s.attacker === this.local || s.phase !== 'attack' || phrase !== s.phrase) return;
-    if (!validStrikes(strikes)) {
+    const checked = checkedStrikes(strikes, this.tun);
+    if (checked === null) {
       // Keep the strikes already known from plant messages so the match does not stall.
       this.emit({ type: 'desync' });
-    } else if (!deepEqual(strikes, s.strikes)) {
-      const fixed = strikes.map((st): Strike => ({ slot: st.slot, x: st.x, y: st.y }));
-      this._state = { ...s, strikes: fixed, results: fixed.map(() => null) };
+    } else if (!deepEqual(checked, s.strikes)) {
+      this._state = { ...s, strikes: checked, results: checked.map(() => null) };
       this.emit({ type: 'desync' });
     }
     const prev = this._state;
@@ -437,10 +433,11 @@ export class DuelSession {
 
   private onState(state: DuelState): void {
     if (this.local === 0) return;
-    if (typeof state !== 'object' || state === null || typeof state.phrase !== 'number') return;
-    const snap = this.snapshots.get(state.phrase);
-    if (snap && deepEqual(snap, state)) return;
-    this._state = state;
+    const clean = parseDuelState(state, this.tun);
+    if (clean === null) return;
+    const snap = this.snapshots.get(clean.phrase);
+    if (snap && deepEqual(snap, clean)) return;
+    this._state = clean;
     this.pending = [];
     this.held = null;
     this.emit({ type: 'desync' });

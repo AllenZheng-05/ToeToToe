@@ -236,3 +236,103 @@ export function reduceDuel(s: DuelState, e: DuelEvent, t: Tunables, bpm: number)
     }
   }
 }
+
+// ---------------------------------------------------------------- untrusted input
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isCount(v: unknown): v is number {
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+}
+
+function isPlayerId(v: unknown): v is PlayerId {
+  return v === 0 || v === 1;
+}
+
+function isGradeValue(v: unknown): v is Grade {
+  return v === 'bravo' || v === 'good' || v === 'miss';
+}
+
+/**
+ * Rebuilds a strike list received from the other player, checking each strike the way a plant is checked:
+ * integer slot inside the phrase, positions 0..1, no two on one slot, no more than the phrase holds.
+ * Returns fresh strikes sorted by slot, or null if anything is wrong.
+ */
+export function checkedStrikes(input: unknown, t: Tunables): Strike[] | null {
+  if (!Array.isArray(input)) return null;
+  const spp = slotsPerPhrase(t);
+  if (input.length > spp) return null;
+  const seen = new Set<number>();
+  const out: Strike[] = [];
+  for (const raw of input as unknown[]) {
+    if (!isRecord(raw)) return null;
+    const { slot, x, y } = raw;
+    if (typeof slot !== 'number' || typeof x !== 'number' || typeof y !== 'number') return null;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= spp || !inUnit(x) || !inUnit(y)) return null;
+    if (seen.has(slot)) return null;
+    seen.add(slot);
+    out.push({ slot, x, y });
+  }
+  out.sort((a, b) => a.slot - b.slot);
+  return out;
+}
+
+function checkedPlayer(v: unknown, t: Tunables): PlayerState | null {
+  if (!isRecord(v)) return null;
+  const { health, stamina, winded, streak } = v;
+  if (typeof health !== 'number' || !Number.isFinite(health) || health < -1e6 || health > 1e6) return null;
+  if (typeof stamina !== 'number' || !Number.isFinite(stamina) || stamina < 0 || stamina > t.startStamina) {
+    return null;
+  }
+  if (typeof winded !== 'boolean' || !isCount(streak)) return null;
+  return { health, stamina, winded, streak };
+}
+
+/**
+ * Checks a `DuelState` received from the other player and returns a clean copy, or null if it is
+ * malformed (wrong types, out-of-range numbers, strikes that could not have been planted).
+ */
+export function parseDuelState(input: unknown, t: Tunables): DuelState | null {
+  if (!isRecord(input)) return null;
+  const s = input;
+  if (s.phase !== 'attack' && s.phase !== 'defend' && s.phase !== 'matchOver') return null;
+  if (!isCount(s.act) || !isCount(s.actFirstPhrase) || !isCount(s.phrase)) return null;
+  if (!isPlayerId(s.firstAttacker) || !isPlayerId(s.attacker)) return null;
+  if (typeof s.windedTurn !== 'boolean') return null;
+  if (s.lastActWinner !== null && !isPlayerId(s.lastActWinner)) return null;
+  if (s.matchWinner !== null && !isPlayerId(s.matchWinner)) return null;
+  if (s.lastActEndPhrase !== null && !isCount(s.lastActEndPhrase)) return null;
+
+  const wins = s.actWins;
+  if (!Array.isArray(wins) || wins.length !== 2 || !isCount(wins[0]) || !isCount(wins[1])) return null;
+  const rawPlayers = s.players;
+  if (!Array.isArray(rawPlayers) || rawPlayers.length !== 2) return null;
+  const p0 = checkedPlayer(rawPlayers[0], t);
+  const p1 = checkedPlayer(rawPlayers[1], t);
+  if (!p0 || !p1) return null;
+
+  const strikes = checkedStrikes(s.strikes, t);
+  if (!strikes) return null;
+  const results = s.results;
+  if (!Array.isArray(results) || results.length !== strikes.length) return null;
+  for (const r of results as unknown[]) if (r !== null && !isGradeValue(r)) return null;
+
+  return {
+    phase: s.phase,
+    act: s.act,
+    actWins: [wins[0], wins[1]],
+    actFirstPhrase: s.actFirstPhrase,
+    phrase: s.phrase,
+    firstAttacker: s.firstAttacker,
+    attacker: s.attacker,
+    players: [p0, p1],
+    strikes,
+    results: (results as (Grade | null)[]).slice(),
+    windedTurn: s.windedTurn,
+    lastActWinner: s.lastActWinner,
+    lastActEndPhrase: s.lastActEndPhrase,
+    matchWinner: s.matchWinner,
+  };
+}

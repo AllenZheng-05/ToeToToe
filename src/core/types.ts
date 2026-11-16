@@ -64,6 +64,13 @@ export interface Tunables {
   actDurationSec: number;
   /** Act wins needed to take the match (2 = best of three). */
   actsToWin: number;
+
+  /** A clock-sync sample whose offset differs from the estimate by more than this (ms), twice in a row, restarts the estimate. */
+  clockJumpMs: number;
+  /** Seconds between the host's `start` and the first beat. */
+  startLeadSec: number;
+  /** How many beats before its time a target's approach ring starts closing. */
+  ringLeadBeats: number;
 }
 
 // ---------------------------------------------------------------- duel
@@ -198,6 +205,8 @@ export type Message =
   | { t: 'tunables'; tunables: Tunables }
   | { t: 'ping'; id: number; t0: number }
   | { t: 'pong'; id: number; t0: number; t1: number }
+  /** Host to guest: the host's audio clock stopped and restarted, so measure the offset again. */
+  | { t: 'resync' }
   /** `startTime` is on the sender's (host's) clock; the guest converts with its measured offset. */
   | { t: 'start'; startTime: number; bpm: number; firstAttacker: PlayerId; firstPhrase: number }
   | { t: 'plant'; phrase: number; strike: Strike }
@@ -205,7 +214,8 @@ export type Message =
   | { t: 'parry'; phrase: number; index: number; grade: Grade }
   | { t: 'resolve'; phrase: number; results: Grade[] }
   | { t: 'state'; state: DuelState }
-  | { t: 'rematch' }
+  /** `want: false` (the default is true) withdraws a rematch request: the sender has left the victory screen. */
+  | { t: 'rematch'; want?: boolean }
   | { t: 'leave' };
 
 export type BlobKind = 'puppet-head' | 'puppet-sock' | 'puppet-sword' | 'song';
@@ -234,7 +244,8 @@ export type Unsubscribe = () => void;
 export interface RawLink {
   readonly selfId: string;
   /** `to: null` broadcasts to everyone currently in the room. */
-  send(to: string | null, data: unknown): void;
+  /** May return a promise that settles when the message has gone out (used to let `bye` leave before the link does). */
+  send(to: string | null, data: unknown): void | Promise<void>;
   sendBinary(
     to: string,
     data: ArrayBuffer,
@@ -247,6 +258,10 @@ export interface RawLink {
   onPeerJoin(cb: (peerId: string) => void): Unsubscribe;
   onPeerLeave(cb: (peerId: string) => void): Unsubscribe;
   leave(): void;
+  /** Optional. True once the link can no longer connect (every relay or the peer connection failed). */
+  readonly failed?: boolean;
+  /** Optional. Called once when the link fails (at once if it already has). */
+  onFailed?(cb: (reason: string) => void): Unsubscribe;
 }
 
 /** The only way the game talks to the other player. Implementations: peer (Trystero), loopback, bot. */

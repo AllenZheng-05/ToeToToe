@@ -1,10 +1,11 @@
-import type { BlobKind, BlobMeta, ThemeOffer, Transport, Unsubscribe } from '../core/types';
+import { cleanText } from '../core/text';
+import type { BlobKind, BlobMeta, ThemeOffer, Transport, Tunables, Unsubscribe } from '../core/types';
 import { SONG_LIMITS } from '../data/songFile';
 import { toThemeOffer, type TrackInfo } from '../data/tracks';
 import type { Room } from '../net/room';
 import type { PartKind } from '../puppet/parts';
 import { checkDrawingBytes } from '../puppet/validate';
-import { ThemeError, type LoadedTheme } from '../theme/theme';
+import { ThemeError, withBeat, type LoadedTheme } from '../theme/theme';
 import type { PuppetImagesSource } from './types';
 
 /** Everything the friend's drawings and songs go through. Whatever arrives is untrusted. */
@@ -24,6 +25,10 @@ const PNG = 'image/png';
 /** Longest puppet name taken from the other player. */
 export const MAX_PEER_PUPPET_NAME = 32;
 const FALLBACK_NAME = 'Friend';
+/** Longest theme title taken from an offer. */
+export const MAX_THEME_TITLE = 80;
+/** A transfer with no progress for this long is given up on, so Start cannot stay locked (UI pacing, not beat timing). */
+export const TRANSFER_STALL_MS = 30_000;
 
 // ------------------------------------------------------------------ drawings (pure)
 
@@ -75,9 +80,7 @@ export class DrawingCollector {
 }
 
 export function cleanPeerName(raw: unknown): string {
-  if (typeof raw !== 'string') return FALLBACK_NAME;
-  const t = raw.trim().slice(0, MAX_PEER_PUPPET_NAME);
-  return t === '' ? FALLBACK_NAME : t;
+  return cleanText(raw, MAX_PEER_PUPPET_NAME, FALLBACK_NAME);
 }
 
 // ------------------------------------------------------------------ theme gate (pure)
@@ -85,6 +88,19 @@ export function cleanPeerName(raw: unknown): string {
 /** What identifies a theme for the `themeReady` answer: the file hash for songs, else the source and id. */
 export function themeKey(o: Pick<ThemeOffer, 'source' | 'id' | 'hash'>): string {
   return o.hash ?? `${o.source}:${o.id}`;
+}
+
+/**
+ * What the `themeReady` answer names: the theme key plus, when known, its tempo and first beat, so an answer
+ * for the same file at another tempo does not count.
+ */
+export function themeGateKey(
+  o: Pick<ThemeOffer, 'source' | 'id' | 'hash'> & Partial<Pick<ThemeOffer, 'bpm' | 'firstBeatOffset'>>,
+): string {
+  const base = themeKey(o);
+  return o.bpm === undefined || o.firstBeatOffset === undefined
+    ? base
+    : `${base}@${o.bpm}/${o.firstBeatOffset}`;
 }
 
 export type LocalThemeStatus = 'none' | 'loading' | 'ready' | 'failed';
@@ -112,9 +128,9 @@ export class ThemeGate {
     return this.peer;
   }
 
-  /** Host: the theme changed. Guest: an offer arrived. Returns true when it is a different theme. */
-  offer(o: Pick<ThemeOffer, 'source' | 'id' | 'hash'>): boolean {
-    const key = themeKey(o);
+  /** Host: the theme changed. Guest: an offer arrived. Returns true when it is a different theme (or the same one at another tempo or first beat). */
+  offer(o: Parameters<typeof themeGateKey>[0]): boolean {
+    const key = themeGateKey(o);
     if (key === this.key) return false;
     this.key = key;
     this.peer = 'unknown';
@@ -188,6 +204,9 @@ export interface ExchangeDeps {
   transport: Transport;
   room: Room;
   role: 'host' | 'guest';
+  tunables: Tunables;
+  /** Runs `fn` after `ms`; returns a cancel function. Defaults to setTimeout. Only for UI pacing, never beat timing. */
+  schedule?: (fn: () => void, ms: number) => () => void;
   /** The player's selected puppet as PNG bytes. */
   getPuppet(): Promise<OutgoingPuppet>;
   /** Decode PNG bytes with the browser's decoder to an image of the part's size. Rejects when it cannot. */
@@ -204,7 +223,7 @@ function infoFromOffer(o: ThemeOffer): TrackInfo {
   const info: TrackInfo = {
     id: o.id,
     source: o.source,
-    title: o.title.slice(0, 80),
+    title: cleanText(o.title, MAX_THEME_TITLE, 'Theme'),
     bpm: o.bpm,
     firstBeatOffset: o.firstBeatOffset,
   };
@@ -245,9 +264,19 @@ export class Exchange {
   /** The most recent song blob received, kept until the matching offer is there to check it against. */
   private pendingSong: { data: ArrayBuffer; meta: BlobMeta } | null = null;
   private sentSongKey: string | null = null;
+  /** The file (theme key) a load is under way for, or null. */
+  private loadingFile: string | null = null;
+  private stallCancel: (() => void) | null = null;
+  private readonly schedule: (fn: () => void, ms: number) => () => void;
 
   constructor(deps: ExchangeDeps) {
     this.d = deps;
+    this.schedule =
+      deps.schedule ??
+      ((fn, ms) => {
+        const h = setTimeout(fn, ms);
+        return () => clearTimeout(h);
+      });
     this.gate = new ThemeGate(deps.role);
     const { transport, room } = deps;
     this.unsubs.push(
@@ -255,6 +284,9 @@ export class Exchange {
       transport.onBlobProgress((fraction, meta) => this.onProgress(fraction, meta)),
       transport.onMessage((m) => {
         if (m.t === 'themeReady') this.onThemeReady(m.hash, m.ok);
+      }),
+      transport.onState((state) => {
+        if (state === 'closed') this.dropTransfers();
       }),
       room.on((e) => {
         if (e.type === 'peer') this.onPeer();
@@ -302,6 +334,8 @@ export class Exchange {
     this.listeners.clear();
     this.decodeToken++;
     this.loadToken++;
+    this.stallCancel?.();
+    this.stallCancel = null;
   }
 
   /** Send the selected puppet (again). Safe to call at any time; a call during a send queues one more. */
@@ -325,7 +359,7 @@ export class Exchange {
     this.message = null;
     this.gate.offer(offer);
     this.d.room.setTheme(offer);
-    this.sentSongKey = null;
+    // The file is sent once: a new tempo or first beat for the same song goes as the offer alone.
     this.maybeSendSong();
     this.emit();
   }
@@ -362,6 +396,7 @@ export class Exchange {
         ];
         let done = 0;
         this.puppetSend = 0;
+        this.activity();
         this.emit();
         for (const [kind, data] of parts) {
           if (this.disposed || this.d.transport.state !== 'open') break;
@@ -370,6 +405,7 @@ export class Exchange {
           try {
             await this.d.transport.sendBlob(data.slice(0), meta, (f) => {
               this.puppetSend = (done + f) / PART_KINDS.length;
+              this.activity();
               this.emit();
             });
           } catch {
@@ -381,6 +417,7 @@ export class Exchange {
     } finally {
       this.sending = false;
       this.puppetSend = null;
+      this.activity();
       if (!this.disposed) this.emit();
     }
   }
@@ -391,9 +428,11 @@ export class Exchange {
     const part = PART_OF[meta.kind];
     if (part) {
       this.fetchProgress[part] = f;
+      this.activity();
       this.emit();
     } else if (meta.kind === 'song') {
       this.songFetch = f;
+      this.activity();
       this.emit();
     }
   }
@@ -403,6 +442,7 @@ export class Exchange {
     if (meta.kind === 'song') {
       if (this.d.role !== 'guest') return;
       this.songFetch = null;
+      this.activity();
       this.pendingSong = { data, meta };
       this.tryLoadSong();
       this.emit();
@@ -422,6 +462,7 @@ export class Exchange {
       this.fetchProgress = {};
       void this.decode(done);
     }
+    this.activity();
     this.emit();
   }
 
@@ -450,16 +491,41 @@ export class Exchange {
 
   // ------------------------------------------------------------ theme
 
-  /** Guest: the host's offer arrived (a new one resets Ready). */
-  private onOffer(theme: ThemeOffer): void {
+  /** Guest: the host's offer arrived (a new one, or a new tempo for the same file, resets Ready). */
+  private onOffer(raw: ThemeOffer): void {
     if (this.d.role !== 'guest' || this.disposed) return;
+    const theme: ThemeOffer = { ...raw, title: cleanText(raw.title, MAX_THEME_TITLE, 'Theme') };
+    const prev = this.offer;
     const changed = this.gate.offer(theme);
     this.offer = theme;
     if (!changed) return;
+    if (this.d.room.localReady) this.d.room.setReady(false);
+
+    // The same file at another tempo or first beat: nothing to fetch again, only the beat to apply.
+    const sameFile = prev !== null && themeKey(prev) === themeKey(theme) && theme.source !== 'click';
+    if (sameFile && this.loaded) {
+      this.loaded = withBeat(this.loaded, theme, this.d.tunables);
+      this.message = null;
+      this.gate.loaded(themeGateKey(theme), true);
+      this.sendThemeReady(theme, true);
+      this.emit();
+      return;
+    }
+    if (sameFile && this.loadingFile === themeKey(theme)) {
+      // Still loading: finishLoad applies whatever beat is current when it is done.
+      this.message = null;
+      this.emit();
+      return;
+    }
+
+    // Anything still coming belongs to the theme that was replaced.
+    this.songFetch = null;
+    this.fetchProgress = {};
+    this.activity();
     this.loaded = null;
     this.message = null;
     this.loadToken++;
-    if (this.d.room.localReady) this.d.room.setReady(false);
+    this.loadingFile = null;
     if (theme.source === 'upload') {
       this.tryLoadSong();
     } else {
@@ -471,6 +537,7 @@ export class Exchange {
   private async loadByName(theme: ThemeOffer): Promise<void> {
     const token = ++this.loadToken;
     const key = themeKey(theme);
+    this.loadingFile = key;
     let loaded: LoadedTheme | null = null;
     let reason: string | null = null;
     try {
@@ -494,6 +561,7 @@ export class Exchange {
     void (async () => {
       const token = ++this.loadToken;
       const key = themeKey(offer);
+      this.loadingFile = key;
       let loaded: LoadedTheme | null = null;
       let reason: string | null = null;
       if (pending.data.byteLength > SONG_LIMITS.maxBytes) {
@@ -509,15 +577,36 @@ export class Exchange {
     })();
   }
 
-  private finishLoad(token: number, key: string, loaded: LoadedTheme | null, reason: string | null): void {
+  /** `fileKey` names the file the load was for; the answer is about the offer that is current now (it may have a new tempo). */
+  private finishLoad(
+    token: number,
+    fileKey: string,
+    loaded: LoadedTheme | null,
+    reason: string | null,
+  ): void {
     if (this.disposed || token !== this.loadToken) return;
-    if (!this.gate.loaded(key, loaded !== null)) return;
-    this.loaded = loaded;
-    this.message = loaded ? null : (reason ?? 'That song could not be loaded.');
-    if (this.d.transport.state === 'open') {
-      this.d.transport.send({ t: 'themeReady', hash: key, ok: loaded !== null });
+    this.loadingFile = null;
+    const offer = this.offer;
+    if (!offer || themeKey(offer) !== fileKey) return;
+    let result = loaded;
+    if (
+      result &&
+      offer.source !== 'click' &&
+      (result.info.bpm !== offer.bpm || result.info.firstBeatOffset !== offer.firstBeatOffset)
+    ) {
+      result = withBeat(result, offer, this.d.tunables);
     }
+    if (!this.gate.loaded(themeGateKey(offer), result !== null)) return;
+    this.loaded = result;
+    this.message = result ? null : (reason ?? 'That song could not be loaded.');
+    this.sendThemeReady(offer, result !== null);
     this.emit();
+  }
+
+  private sendThemeReady(offer: ThemeOffer, ok: boolean): void {
+    if (this.d.transport.state === 'open') {
+      this.d.transport.send({ t: 'themeReady', hash: themeGateKey(offer), ok });
+    }
   }
 
   /** Host: the guest answered for a theme. */
@@ -526,6 +615,8 @@ export class Exchange {
     if ((hash !== null && typeof hash !== 'string') || typeof ok !== 'boolean') return;
     if (!this.gate.peerReport(hash, ok)) return;
     this.message = ok ? null : MSG_FRIEND_COULD_NOT_LOAD;
+    // A friend that could not load the file needs it sent again with the next offer.
+    if (!ok) this.sentSongKey = null;
     this.emit();
   }
 
@@ -545,18 +636,56 @@ export class Exchange {
     };
     if (t.info.hash !== undefined) meta.hash = t.info.hash;
     this.songSend = 0;
+    this.activity();
     this.emit();
     this.d.transport
       .sendBlob(t.file.data.slice(0), meta, (f) => {
         this.songSend = f;
+        this.activity();
         this.emit();
       })
       .catch(() => {
-        // The friend left or the link dropped: the lobby shows that on its own.
+        // The friend left or the link dropped (the lobby shows that on its own). Send it again on the next offer.
+        if (this.sentSongKey === key) this.sentSongKey = null;
       })
       .finally(() => {
         this.songSend = null;
+        this.activity();
         if (!this.disposed) this.emit();
       });
+  }
+
+  // ------------------------------------------------------------ stuck transfers
+
+  private get transferring(): boolean {
+    return (
+      this.puppetSend !== null ||
+      this.songSend !== null ||
+      this.songFetch !== null ||
+      Object.keys(this.fetchProgress).length > 0
+    );
+  }
+
+  /** Something moved (or ended): restart the stall timer while any transfer is still open, stop it otherwise. */
+  private activity(): void {
+    this.stallCancel?.();
+    this.stallCancel = null;
+    if (this.disposed || !this.transferring) return;
+    this.stallCancel = this.schedule(() => {
+      this.stallCancel = null;
+      if (this.disposed) return;
+      this.dropTransfers();
+    }, TRANSFER_STALL_MS);
+  }
+
+  /** The friend left, or nothing has moved for a long time: nothing is on its way any more. */
+  private dropTransfers(): void {
+    this.fetchProgress = {};
+    this.puppetSend = null;
+    this.songSend = null;
+    this.songFetch = null;
+    this.stallCancel?.();
+    this.stallCancel = null;
+    if (!this.disposed) this.emit();
   }
 }

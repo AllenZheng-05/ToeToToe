@@ -168,6 +168,7 @@ function rig(opts: { guestFailsSong?: boolean; badPuppet?: boolean } = {}) {
       transport,
       room,
       role,
+      tunables,
       getPuppet: () => Promise.resolve(puppet),
       decodePart: (data, kind) => Promise.resolve({ decoded: kind, tag: new Uint8Array(data)[31] } as never),
       fallbackPart: (kind) => Promise.resolve({ fallback: kind } as never),

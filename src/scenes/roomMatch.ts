@@ -37,11 +37,18 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
   const peerImages = connection.exchange.view.peerPuppet?.images ?? null;
   const peerPuppetName = connection.exchange.view.peerPuppet?.name ?? null;
 
-  let rematchState = { local: false, peer: false };
+  let rematchState: { local: boolean; peer: boolean; peerBack: boolean } = {
+    local: false,
+    peer: false,
+    peerBack: false,
+  };
   const offRematch = room.on((e) => {
-    if (e.type === 'rematch') rematchState = { local: e.local, peer: e.peer };
+    if (e.type === 'rematch') rematchState = { local: e.local, peer: e.peer, peerBack: e.peerBack };
   });
   const pending: Unsubscribe[] = [];
+  /** The one rematch in progress: asking again returns it instead of adding a second `start` listener. */
+  let rematching: Promise<MatchSetup> | null = null;
+  let offStart: Unsubscribe | null = null;
 
   return {
     localPlayer: room.localPlayer,
@@ -59,22 +66,34 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
     watchRematch(cb) {
       cb(rematchState);
       const off = room.on((e) => {
-        if (e.type === 'rematch') cb({ local: e.local, peer: e.peer });
+        if (e.type === 'rematch') cb({ local: e.local, peer: e.peer, peerBack: e.peerBack });
       });
       pending.push(off);
       return off;
     },
     rematch() {
-      return new Promise((resolve) => {
+      if (rematching) return rematching;
+      rematching = new Promise((resolve) => {
         const off = room.on((e) => {
           if (e.type !== 'start') return;
           off();
+          offStart = null;
           offRematch();
           resolve(createRoomMatch(app, connection, e.info));
         });
+        offStart = off;
         pending.push(off);
         room.requestRematch();
       });
+      return rematching;
+    },
+    cancelRematch() {
+      offStart?.();
+      offStart = null;
+      rematching = null;
+      for (const off of pending.splice(0)) off();
+      offRematch();
+      room.cancelRematch();
     },
     leave() {
       for (const off of pending.splice(0)) off();

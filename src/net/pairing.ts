@@ -7,11 +7,15 @@ import type {
   TransportState,
   Unsubscribe,
 } from '../core/types';
+import { dispatch } from './dispatch';
 
 export interface PairingOptions {
   link: RawLink;
   role: 'host' | 'guest';
 }
+
+/** How long `bye` may take to go out before the link is left anyway (UI pacing, not beat timing). */
+const BYE_GRACE_MS = 300;
 
 type Control = 'offer' | 'accept' | 'full' | 'bye' | 'here';
 
@@ -101,30 +105,50 @@ class PairingTransport implements Transport {
 
   close(): void {
     if (this.state === 'closed') return;
-    if (this.partner !== null && this.state === 'open') this.control(this.partner, 'bye');
-    this.shutdown('closed');
+    // Stop listening first: the friend's answer to the bye (it leaves too) must not cut this short.
+    const partner = this.partner;
+    const wasOpen = this.state === 'open';
+    for (const u of this.unsubs.splice(0)) u();
+    const sent = partner !== null && wasOpen ? this.control(partner, 'bye') : undefined;
+    this.shutdown('closed', sent);
   }
 
   // ------------------------------------------------------------ internals
 
-  private control(to: string, c: Control): void {
-    this.link.send(to, { c });
+  private control(to: string, c: Control): void | Promise<void> {
+    return this.link.send(to, { c });
   }
 
   private setState(next: TransportState): void {
     if (this.state === next) return;
     this.state = next;
-    for (const cb of [...this.stateCbs]) cb(next);
+    dispatch(this.stateCbs, next);
   }
 
   /** Leave the link, stop listening, and move to a terminal state. */
-  private shutdown(next: 'closed' | 'full'): void {
+  private shutdown(next: 'closed' | 'full', pendingSend?: void | Promise<void>): void {
     for (const u of this.unsubs.splice(0)) u();
     if (!this.left) {
       this.left = true;
-      this.link.leave();
+      this.leaveLink(pendingSend);
     }
     this.setState(next);
+  }
+
+  /** Leaves the link; when a send is still going out (the bye), gives it a moment first, then leaves regardless. */
+  private leaveLink(pendingSend?: void | Promise<void>): void {
+    if (!(pendingSend instanceof Promise)) {
+      this.link.leave();
+      return;
+    }
+    let done = false;
+    const go = (): void => {
+      if (done) return;
+      done = true;
+      this.link.leave();
+    };
+    pendingSend.then(go, go);
+    setTimeout(go, BYE_GRACE_MS);
   }
 
   private get live(): boolean {
@@ -147,7 +171,7 @@ class PairingTransport implements Transport {
     }
     if (from !== this.partner || this.state !== 'open') return;
     if (!validMessage(data.m)) return;
-    for (const cb of [...this.msgCbs]) cb(data.m);
+    dispatch(this.msgCbs, data.m);
   }
 
   private onControl(from: string, c: Control): void {
@@ -185,7 +209,7 @@ class PairingTransport implements Transport {
   private onBinary(from: string, data: ArrayBuffer, meta: unknown): void {
     if (this.state !== 'open' || from !== this.partner) return;
     if (!validBlobMeta(meta, data)) return;
-    for (const cb of [...this.blobCbs]) cb(data, meta);
+    dispatch(this.blobCbs, data, meta);
   }
 
   private onProgress(from: string, fraction: number, meta: unknown): void {
@@ -193,7 +217,7 @@ class PairingTransport implements Transport {
     if (typeof fraction !== 'number' || !isRecord(meta)) return;
     if (typeof meta.kind !== 'string' || !(BLOB_KINDS as readonly string[]).includes(meta.kind)) return;
     if (typeof meta.mime !== 'string' || typeof meta.bytes !== 'number') return;
-    for (const cb of [...this.progressCbs]) cb(fraction, meta as unknown as BlobMeta);
+    dispatch(this.progressCbs, fraction, meta as unknown as BlobMeta);
   }
 }
 

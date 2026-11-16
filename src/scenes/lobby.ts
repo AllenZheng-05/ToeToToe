@@ -25,6 +25,8 @@ import { WorkshopScene } from './workshopScene';
 
 /** How long "Your friend left" stays up before returning to the title (UI only, not on the beat). */
 const LEFT_NOTICE_MS = 2200;
+/** How long a guest waits for the host to answer before the lobby says it could not connect (UI only, not on the beat). */
+export const CONNECT_TIMEOUT_MS = 20_000;
 
 export interface LobbyOptions {
   code: string;
@@ -50,6 +52,7 @@ export class LobbyScene implements Scene {
   /** The room goes on without this scene (a duel, the workshop or the theme screen has it). */
   private handedOff = false;
   private leaveTimer: number | null = null;
+  private connectTimer: number | null = null;
   private model: LobbyModel;
   private draw: () => void = () => {};
   private puppets: MenuPuppets | null = null;
@@ -279,6 +282,20 @@ export class LobbyScene implements Scene {
 
   private detach(): void {
     for (const off of this.subs.splice(0)) off();
+    if (this.connectTimer !== null) window.clearTimeout(this.connectTimer);
+    this.connectTimer = null;
+  }
+
+  /** The room cannot be reached (the link failed, or the host never answered): leave it and offer "Try again". */
+  private failConnection(): void {
+    if (this.exited || this.model.failed) return;
+    this.detach();
+    if (this.connection) {
+      leaveRoom(this.connection);
+      this.connection = null;
+    }
+    this.model = { ...this.model, failed: true };
+    this.draw();
   }
 
   private toTitle(): void {
@@ -379,6 +396,10 @@ export class LobbyScene implements Scene {
     this.connection = connection;
     this.subs.push(
       connection.transport.onState((state) => {
+        if (state !== 'connecting' && this.connectTimer !== null) {
+          window.clearTimeout(this.connectTimer);
+          this.connectTimer = null;
+        }
         this.sync();
         if (state === 'closed') this.onFriendLeft();
       }),
@@ -399,7 +420,19 @@ export class LobbyScene implements Scene {
     );
     this.model = { ...this.model, linkReady: true };
     this.showPeerPuppet();
+    // Back in the lobby after a match: ping at the slow rate again, with a fresh burst now.
+    connection.room.resumeLobby();
     this.sync();
+
+    // A guest that hears nothing from the host for a while says so instead of waiting for ever.
+    if (connection.role === 'guest' && connection.transport.state === 'connecting') {
+      this.connectTimer = window.setTimeout(() => {
+        this.connectTimer = null;
+        if (this.connection?.transport.state === 'connecting') this.failConnection();
+      }, CONNECT_TIMEOUT_MS);
+    }
+    const offFailed = connection.link.onFailed?.(() => this.failConnection());
+    if (offFailed) this.subs.push(offFailed);
   }
 
   /** The friend's puppet stands on the stage once their drawings have arrived. */

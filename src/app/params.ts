@@ -1,4 +1,4 @@
-import { DEFAULT_TUNABLES } from '../core/tunables';
+import { createTunables, tunableInRange, validateTunables } from '../core/tunables';
 import type { Tunables } from '../core/types';
 
 /** Options read from the page URL. Everything is optional; no parameters means a normal game. */
@@ -19,7 +19,7 @@ export interface AppParams {
   room: string | null;
   /** ?net=tab: rooms talk over BroadcastChannel between tabs of one browser (tests); default 'peer' is WebRTC. */
   net: 'peer' | 'tab';
-  /** ?tunables={"startHealth":30}: JSON; unknown keys and non-number values are dropped. */
+  /** ?tunables={"startHealth":30}: JSON; unknown keys and out-of-range or non-number values are dropped. */
   tunables: Partial<Tunables>;
 }
 
@@ -44,11 +44,12 @@ function parseTunables(raw: string | null): Partial<Tunables> {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
   const out: Record<string, number> = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (Object.hasOwn(DEFAULT_TUNABLES, key) && typeof value === 'number' && Number.isFinite(value)) {
+    if (tunableInRange(key, value)) {
       out[key] = value;
     }
   }
-  return out as Partial<Tunables>;
+  // Each value is in range; the set as a whole must be too (minBpm not above maxBpm).
+  return validateTunables(createTunables(out)) ? (out as Partial<Tunables>) : {};
 }
 
 const ROOM_CODE = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;

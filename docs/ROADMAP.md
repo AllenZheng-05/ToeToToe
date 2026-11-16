@@ -63,6 +63,6 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 ## After everything
 
 - [x] Reviewer pass over the whole codebase against the timing rules
-- [~] Review fixes (brief 8)
-- [ ] Extra test coverage for duel rules and protocol
-- [ ] Final morning report
+- [x] Review fixes (brief 8)
+- [x] Extra test coverage for duel rules and protocol (85 unit tests added with the review fixes)
+- [x] Final morning report

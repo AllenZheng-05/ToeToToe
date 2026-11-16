@@ -1,4 +1,5 @@
 import type { BlobMeta, Clock, Message, Transport, TransportState, Unsubscribe } from '../core/types';
+import { dispatch } from './dispatch';
 
 export interface LoopbackPair {
   host: Transport; // role 'host'
@@ -76,7 +77,7 @@ class Endpoint implements Transport {
   private setClosed(): void {
     if (this.state === 'closed') return;
     this.state = 'closed';
-    for (const cb of [...this.stateCbs]) cb('closed');
+    dispatch(this.stateCbs, 'closed');
   }
 
   private enqueue(
@@ -93,10 +94,10 @@ class Endpoint implements Transport {
   deliver(d: Delivery): void {
     if (this.state !== 'open') return;
     if (d.kind === 'msg') {
-      for (const cb of [...this.msgCbs]) cb(d.msg);
+      dispatch(this.msgCbs, d.msg);
     } else {
-      for (const cb of [...this.progressCbs]) cb(1, d.meta);
-      for (const cb of [...this.blobCbs]) cb(d.data, d.meta);
+      dispatch(this.progressCbs, 1, d.meta);
+      dispatch(this.blobCbs, d.data, d.meta);
     }
   }
 }

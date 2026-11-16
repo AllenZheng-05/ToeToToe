@@ -26,8 +26,13 @@ export interface MatchSetup {
   attach?: (session: DuelSession) => void;
   /** True for a match played through a Room (two people), false for the bot. */
   online?: boolean;
-  /** Room matches: reports whether each side has asked for a rematch (called once now, then on every change). */
-  watchRematch?: (cb: (s: { local: boolean; peer: boolean }) => void) => Unsubscribe;
+  /**
+   * Room matches: reports whether each side has asked for a rematch (called once now, then on every change).
+   * `peerBack`: the friend has left the victory screen for the room.
+   */
+  watchRematch?: (cb: (s: { local: boolean; peer: boolean; peerBack?: boolean }) => void) => Unsubscribe;
+  /** Room matches: withdraw the rematch request and stop waiting for the friend's (called on leaving the victory screen). */
+  cancelRematch?: () => void;
   /** Room matches: leave the room for good (closes the connection, restores the address bar). */
   leave?: () => void;
   /**

@@ -167,7 +167,7 @@ export class MarksView {
     this.container.addChild(this.lineGfx, this.discLayer, this.ringGfx);
   }
 
-  /** ringLeadBeats: how many beats before its time a target's ring starts closing (default 2). */
+  /** ringLeadBeats: how many beats before its time a target's ring starts closing (default: the ringLeadBeats tunable). */
   update(
     view: DuelView,
     tunables: Tunables,
@@ -204,7 +204,7 @@ export class MarksView {
         sprite(tex, p.x, p.y, 1);
       });
     } else if (view.phase === 'defend' && view.targets.length > 0) {
-      const leadSec = (opts.ringLeadBeats ?? 2) * (60 / bpm);
+      const leadSec = (opts.ringLeadBeats ?? tunables.ringLeadBeats) * (60 / bpm);
       const pts = view.targets.map((t) => playToDesign(t.strike.x, t.strike.y));
       this.drawLine(pts, 'order', scale);
       view.targets.forEach((t, i) => {
