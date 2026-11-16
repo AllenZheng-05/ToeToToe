@@ -5,8 +5,9 @@ _Kept current during the run. If the session was cut off, `docs/ROADMAP.md` show
 ## State
 
 - **Milestone 0 (repo setup): done.**
-- **Milestone 1 (duel against a bot): code complete and unit tested; browser smoke test in progress (task 1.6).**
-- **Milestone 2 (two players): transport, pairing, room handshake, clock sync and the Trystero link are built and unit tested; the lobby screens and the two-window browser check are next (task 2.3).**
+- **Milestone 1 (duel against a bot): done.** A bot match runs to the victory screen in real Chromium (`pnpm e2e`).
+- **Milestone 2 (two players): done for everything testable without a network.** Two browser pages joined by the tab loopback create a room, play a scripted act and a whole match, rematch, and handle leaving (`pnpm e2e`). The real WebRTC path has never connected (see Not verified).
+- **Milestone 3 (final design): in progress** (task 3.D1, the duel scene).
 - **Milestones 3 to 6:** groundwork built ahead in parallel (design spec, puppet rig and presets, local store, placeholder tracks, song checks, tempo helpers, Supabase migration and guide). Stage art kit and UI kit in progress.
 - Nothing has been pushed or deployed.
 
@@ -57,7 +58,9 @@ pnpm dev            # http://localhost:5173
 - Bot match: open `http://localhost:5173/?debug=1` and press "Practise against the bot".
 - Debug overlay: add `?debug=1` to any URL. It has every tunable as a live number input.
 - Useful parameters: `bot=1` (first click starts a bot match), `autoplay=1` (a bot plays your side too), `bpm=140`, `seed=7`, `botAccuracy=0.5`, `tunables={"startHealth":30}`.
-- Two windows playing each other: to be filled in when task 2.3 lands.
+- Two windows playing each other with no network: open `http://localhost:5173/?net=tab&debug=1`, press "Create a room", copy the link, and open it in a second window of the same browser with `?net=tab&debug=1` kept in the query. Without `net=tab` the room uses real WebRTC through Trystero.
+- Component test benches (dev server only): `/dev/artkit.html`, `/dev/uikit.html`, `/dev/workshop.html`, `/dev/theme.html`, `/dev/account.html`.
+- Browser checks: `pnpm e2e` (builds, previews on port 4173, runs Chromium headless). Screenshots land in `test-results/screens/`.
 
 ## Playtest checklists
 
