@@ -1,7 +1,10 @@
 import { AudioEngine } from '../audio/engine';
 import { createTunables } from '../core/tunables';
 import type { DuelSession, SessionEvent } from '../core/session';
+import { createAccount, type Account } from '../data/account';
+import { supabaseConfigFromEnv, type Remote } from '../data/remote';
 import { openStore, type Store } from '../data/store';
+import { cleanName, loadName, saveName } from './profile';
 import type { Tunables, Unsubscribe } from '../core/types';
 import type { MatchSetup, Scene } from '../scenes/types';
 import { Stage } from '../stage/stage';
@@ -29,6 +32,21 @@ const SLOW_FRAME_MS = 50;
 const SLOW_FRAMES_TO_DOWNSCALE = 20;
 const LOW_RESOLUTION = 0.5;
 
+/** The account: Supabase only when the build has its settings (a separate chunk, loaded on demand). */
+async function createAppAccount(store: Store): Promise<Account> {
+  let remote: Remote | null = null;
+  const config = supabaseConfigFromEnv(import.meta.env);
+  if (config) {
+    try {
+      const { createSupabaseRemote } = await import('../data/supabaseRemote');
+      remote = await createSupabaseRemote(config);
+    } catch {
+      remote = null;
+    }
+  }
+  return createAccount({ remote, store });
+}
+
 export class App {
   readonly params: AppParams;
   readonly tunables: Tunables;
@@ -41,6 +59,13 @@ export class App {
   session: DuelSession | null = null;
   /** Last judged input offsets of the local player, in milliseconds, oldest first. */
   readonly judgedOffsets: number[] = [];
+
+  /** The player's display name (also kept in the store's settings). */
+  displayName = '';
+  /** Saving across devices. Resolves once the (optional) Supabase client is ready; never rejects. */
+  readonly account: Promise<Account>;
+  /** False while a full-screen DOM scene (the workshop) hides the stage: the canvas is not redrawn. */
+  rendering = true;
 
   /** The open room, if any (lobby, duel or victory screen of a two-player match). */
   connection: Connection | null = null;
@@ -63,12 +88,16 @@ export class App {
     this.tunables = createTunables(params.tunables);
     this.stage = stage;
     this.store = store;
+    this.account = createAppAccount(store);
   }
 
   static async create(host: HTMLElement, params: AppParams): Promise<App> {
     const [stage, store] = await Promise.all([Stage.create(host), openStore()]);
     const app = new App(params, stage, store);
+    app.displayName = await loadName(store);
     app.start();
+    // Never blocks the game: restores a saved session in the background, if there is an account service.
+    void app.account.then((a) => a.init());
     return app;
   }
 
@@ -85,6 +114,13 @@ export class App {
   /** Overlay root in 1280x720 design pixels. */
   get overlay(): HTMLElement {
     return this.stage.overlay;
+  }
+
+  /** Clean, remember and return the display name. */
+  setDisplayName(raw: string): string {
+    this.displayName = cleanName(raw);
+    void saveName(this.store, this.displayName);
+    return this.displayName;
   }
 
   recordJudgedOffset(ms: number): void {
@@ -122,7 +158,7 @@ export class App {
     const frame = (timestamp: number): void => {
       this.rafId = requestAnimationFrame(frame);
       this.tick({ hidden: false, timestamp });
-      this.stage.render();
+      if (this.rendering) this.stage.render();
       this.watchFrameRate(timestamp);
     };
     this.rafId = requestAnimationFrame(frame);

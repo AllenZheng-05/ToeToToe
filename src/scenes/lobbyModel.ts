@@ -15,6 +15,10 @@ export interface LobbyModel {
   peerReady: boolean;
   synced: boolean;
   rttMs: number | null;
+  /** The local player may press Ready as far as the battle theme goes (guest: the host's theme is loaded). Default true. */
+  themeOk?: boolean;
+  /** The host may press Start as far as the theme and the drawings go (guest loaded the theme, nothing still arriving). Default true. */
+  startOk?: boolean;
 }
 
 export const MSG_CONNECTING = 'Connecting…';
@@ -75,11 +79,56 @@ export function controls(m: LobbyModel): LobbyControls {
   const paired =
     m.linkReady && !m.failed && !m.versionMismatch && m.transport === 'open' && m.peerName !== null;
   return {
-    canReady: paired,
-    canStart: paired && m.role === 'host' && m.localReady && m.peerReady && m.synced,
+    canReady: paired && (m.themeOk ?? true),
+    canStart: paired && m.role === 'host' && m.localReady && m.peerReady && m.synced && (m.startOk ?? true),
     showBackToTitle: m.transport === 'full' && !m.failed,
     showRetry: m.failed,
     rttText:
       m.synced && m.rttMs !== null && m.role === 'guest' ? `Round trip: ${m.rttMs.toFixed(0)} ms` : null,
   };
+}
+
+export interface TransferBar {
+  id: 'send-puppet' | 'fetch-puppet' | 'send-song' | 'fetch-song';
+  label: string;
+  /** 0..1 */
+  fraction: number;
+}
+
+/** The progress bars to show for whatever is on its way, in plain words. */
+export function transferBars(
+  v: {
+    puppetSend: number | null;
+    puppetFetch: number | null;
+    songSend: number | null;
+    songFetch: number | null;
+  },
+  peerName: string | null,
+): TransferBar[] {
+  const pct = (f: number): number => Math.round(Math.min(1, Math.max(0, f)) * 100);
+  const bars: TransferBar[] = [];
+  if (v.puppetSend !== null) {
+    bars.push({ id: 'send-puppet', label: 'Sending your puppet', fraction: v.puppetSend });
+  }
+  if (v.puppetFetch !== null) {
+    bars.push({
+      id: 'fetch-puppet',
+      label: `Fetching ${peerName ?? 'your friend'}'s puppet`,
+      fraction: v.puppetFetch,
+    });
+  }
+  if (v.songSend !== null) {
+    bars.push({ id: 'send-song', label: `Sending the song (${pct(v.songSend)}%)`, fraction: v.songSend });
+  }
+  if (v.songFetch !== null) {
+    bars.push({ id: 'fetch-song', label: `Fetching the song (${pct(v.songFetch)}%)`, fraction: v.songFetch });
+  }
+  return bars;
+}
+
+/** "Placeholder: March (100), 100 BPM". */
+export function themeText(offer: { title: string; bpm: number } | null): string {
+  if (!offer) return 'Loading…';
+  const bpm = Math.round(offer.bpm * 10) / 10;
+  return `${offer.title}, ${bpm} BPM`;
 }

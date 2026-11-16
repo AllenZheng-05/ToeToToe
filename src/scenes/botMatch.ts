@@ -1,19 +1,22 @@
 import type { App } from '../app/app';
-import { loadName } from '../app/profile';
-import { clickLoopSeconds, createClickBuffer } from '../audio/click';
 import { foldBpm } from '../core/beat';
 import type { BeatGrid } from '../core/types';
+import { initialTheme } from '../app/connection';
 import { BotDriver, createBotOpponent, type BotOptions } from '../net/bot';
+import { playTheme } from '../theme/theme';
 import type { MatchSetup } from './types';
 
 /** Seconds between the click and the first beat, so the count-in has something to start from. */
 const START_DELAY_SEC = 0.6;
-const CLICK_LOOP_BEATS = 16;
 
-/** A match against the bot, with the click track as the song. Call after the audio engine is resumed. */
-export function createBotMatch(app: App): MatchSetup {
+/**
+ * A match against the bot, to the player's selected battle theme (the click track at `?bpm=` when that is given).
+ * Call after the audio engine is resumed.
+ */
+export async function createBotMatch(app: App): Promise<MatchSetup> {
   const { engine, tunables, params } = app;
-  const bpm = foldBpm(params.bpm ?? 120, tunables);
+  const theme = await initialTheme(app);
+  const bpm = foldBpm(params.bpm ?? theme.info.bpm, tunables);
   const grid: BeatGrid = { bpm, startTime: engine.clock.now() + START_DELAY_SEC };
   const firstPhrase = tunables.countInPhrases;
 
@@ -30,17 +33,13 @@ export function createBotMatch(app: App): MatchSetup {
     options,
   });
 
-  const spec = { bpm, beats: CLICK_LOOP_BEATS };
-  const music = engine.playLoop(createClickBuffer(engine.context, bpm, CLICK_LOOP_BEATS), {
-    startTime: grid.startTime,
-    loopEnd: clickLoopSeconds(spec),
-  });
+  const music = playTheme(theme, engine, grid.startTime);
 
   let localDriver: BotDriver | null = null;
 
   return {
     localPlayer: 0,
-    names: [loadName(), 'Bot'],
+    names: [app.displayName, 'Bot'],
     transport: opponent.transport,
     grid,
     firstAttacker: 0,
@@ -65,8 +64,6 @@ export function createBotMatch(app: App): MatchSetup {
       music.stop();
       opponent.dispose();
     },
-    rematch: () => {
-      return Promise.resolve(createBotMatch(app));
-    },
+    rematch: () => createBotMatch(app),
   };
 }

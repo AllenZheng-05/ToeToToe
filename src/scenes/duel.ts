@@ -130,6 +130,8 @@ export class DuelScene implements Scene {
     }
     if (this.disposed || this.renderer !== renderer) return;
     renderer.setPuppets(local === 0 ? [mine, theirs] : [theirs, mine]);
+    // Kept on the setup so the victory screen stands the same puppets on the stage.
+    setup.puppets = local === 0 ? [mine, theirs] : [theirs, mine];
   }
 
   private frame(info: FrameInfo): void {

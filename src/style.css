@@ -50,167 +50,419 @@ body {
 .scene {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.card {
+/* The workshop and the battle theme screen fill the whole 1280x720 design space and take clicks. */
+.full-scene {
   pointer-events: auto;
-  box-sizing: border-box;
-  width: 560px;
-  padding: 28px 36px 32px;
-  background: var(--paper);
-  border: 4px solid var(--ink);
-  box-shadow: 8px 10px 0 rgba(0, 0, 0, 0.35);
-  text-align: center;
 }
 
-.card h1 {
-  margin: 0 0 18px;
-  font-size: 64px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-}
-
-.card .score {
-  margin: 0 0 22px;
-  font-size: 22px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 20px;
-  font-size: 16px;
-  text-align: left;
-}
-
-.field input {
-  font: inherit;
-  font-size: 22px;
-  padding: 6px 10px;
-  border: 3px solid var(--ink);
-  background: #fff;
+/* Menu screens are written on the theatre: the overlay lets clicks through except on controls. */
+.menu {
+  font-family: var(--font-type);
   color: var(--ink);
 }
 
-.buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.victory .buttons {
-  flex-direction: row;
-  justify-content: center;
-}
-
-.btn {
-  font: inherit;
-  font-size: 24px;
-  font-weight: bold;
-  padding: 12px 20px;
-  color: var(--ink);
-  border: 4px solid var(--ink);
-  cursor: pointer;
-  box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.35);
-}
-
-.btn:hover:not(:disabled) {
-  transform: translate(-1px, -1px);
-}
-
-.btn:active:not(:disabled) {
-  transform: translate(2px, 2px);
-  box-shadow: 2px 3px 0 rgba(0, 0, 0, 0.35);
-}
-
-.btn:focus-visible,
-.field input:focus-visible {
-  outline: 4px solid var(--blue);
-  outline-offset: 2px;
-}
-
-.btn.primary {
-  background: var(--yellow);
-}
-
-.btn.pink {
-  background: var(--pink);
-}
-
-.btn.paper {
-  background: var(--paper);
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.hint {
-  margin: 10px 0 18px;
-  font-size: 15px;
+.menu button,
+.menu input,
+.menu .tt-btn,
+.menu .tt-input,
+.menu .tt-field,
+.menu .join-line,
+.menu .account-hit {
+  pointer-events: auto;
 }
 
 [hidden] {
   display: none !important;
 }
 
-.lobby .card h1 {
-  font-size: 40px;
-  margin-bottom: 8px;
+/* The lettering on the hanging sign (the sign image is 600 wide at x 340, y 56). */
+.sign-content {
+  position: absolute;
+  left: 350px;
+  top: 186px;
+  width: 580px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transform: rotate(-1deg);
 }
 
-.lobby .card .score {
-  margin-bottom: 12px;
-  font-size: 30px;
-  font-weight: bold;
+.sign-lobby {
+  top: 188px;
 }
 
-.lobby .hint {
-  margin: 6px 0;
+.sign-victory {
+  top: 192px;
+  gap: 12px;
 }
 
-.lobby .players p {
-  margin: 4px 0;
-  font-size: 20px;
+.sign-heading {
+  margin: 0;
+  font-weight: 400;
+  line-height: 1;
 }
 
-.lobby .buttons {
+.sign-tagline {
+  padding: 6px 22px 4px 22px;
+  background: var(--paper);
+  font-size: 24px;
+  line-height: 1.2;
+  clip-path: polygon(0% 12%, 4% 0%, 97% 6%, 100% 88%, 95% 100%, 3% 92%);
+}
+
+.sign-quip {
+  padding: 4px 18px;
+  background: var(--tape-note);
+  font-family: var(--font-marker);
+  font-size: 21px;
+  line-height: 1.3;
+  transform: rotate(var(--rot, 2deg));
+}
+
+.sign-row {
+  display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.sign-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Button sizes for their places. The kit's variants set the colours. */
+.mb-sign {
+  --fs: 14px;
+  --px: 14px;
+  --vis: 34px;
+}
+
+.mb-side {
+  --fs: 17px;
+  --vis: 40px;
+}
+
+.mb-main {
+  --fs: 20px;
+}
+
+.tt-btn.on {
+  --face: #9be7a5;
+}
+
+/* The ledge: the front strip of cardboard at y 603..695. Buttons sit on it between the curtain hems. */
+.ledge-row {
+  position: absolute;
+  left: 0;
+  top: 622px;
+  width: 1280px;
+  display: flex;
+  flex-direction: row;
   justify-content: center;
-  margin-top: 12px;
+  align-items: center;
+  gap: 16px;
 }
 
-.lobby .btn {
+.ledge-victory {
+  top: 618px;
+}
+
+.title-name {
+  position: absolute;
+  left: 186px;
+  top: 609px;
+}
+
+.title-name .tt-input {
+  width: 160px;
+  height: 42px;
+  border-style: dashed;
+}
+
+/* "Join a room" opens the room code field above the ledge. */
+.join-row {
+  position: absolute;
+  left: 0;
+  top: 520px;
+  width: 1280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.join-line {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--paper);
+  box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.28);
+  transform: rotate(1deg);
+}
+
+.title-account {
+  position: absolute;
+  left: 986px;
+  top: 150px;
+  width: 244px;
+}
+
+.title-account .tt-account {
+  width: 244px;
+  padding: 12px;
+}
+
+/* Lobby */
+.note-leave {
+  position: absolute;
+  left: 60px;
+  top: 150px;
+  padding: 6px 14px 3px 14px;
+  background: var(--paper);
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  font-family: var(--font-type);
+  font-size: 17px;
+  line-height: 1.3;
+  transform: rotate(-3deg);
+  cursor: pointer;
+}
+
+.note-leave:focus-visible,
+.theme-change:focus-visible,
+.link-box:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--white);
+}
+
+.code-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+
+.code-tiles {
+  display: flex;
+}
+
+.link-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.link-box {
+  width: 360px;
+  box-sizing: border-box;
+  padding: 6px 16px 3px 16px;
+  background: var(--paper);
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  font-family: var(--font-type);
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+.sign-status {
+  min-height: 34px;
+  padding: 4px 18px;
+  background: var(--tape-note);
+  font-family: var(--font-marker);
   font-size: 20px;
-  padding: 8px 16px;
+  line-height: 1.3;
+  transform: rotate(-1deg);
 }
 
-.lobby .field {
-  margin-bottom: 10px;
+.sign-status[data-state='full'],
+.sign-status[data-state='failed'],
+.sign-status[data-state='closed'] {
+  background: #f4b6b6;
 }
 
-.btn.on {
-  background: #9be7a5;
+.sign-wait {
+  margin: 0;
+  padding: 2px 10px 0;
+  background: var(--paper);
+  font-size: 15px;
 }
 
+.sign-fail {
+  max-width: 460px;
+}
+
+.lobby-side {
+  position: absolute;
+  left: 986px;
+  top: 150px;
+  width: 244px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.rtt-tag {
+  transform: rotate(3deg);
+}
+
+.xfer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.xfer .tt-progress {
+  width: 100%;
+}
+
+.theme-row {
+  position: absolute;
+  left: 50%;
+  top: 532px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--paper);
+  box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%) rotate(1deg);
+}
+
+.theme-name {
+  font-size: 18px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.theme-change {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  font-family: var(--font-type);
+  font-size: 18px;
+  line-height: 1.2;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.theme-change:hover {
+  color: var(--red);
+}
+
+.captioned {
+  position: absolute;
+  top: 609px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.captioned-left,
+.ledge-left {
+  left: 186px;
+  align-items: flex-start;
+}
+
+.captioned-right,
+.ledge-right {
+  right: 186px;
+  align-items: flex-end;
+}
+
+.captioned-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.name-box {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  padding: 3px 12px 0 12px;
+  background: var(--paper);
+  font-size: 20px;
+  max-width: 190px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.captioned[data-present='false'] .name-box,
+.captioned[data-present='false'] .ready-tag {
+  opacity: 0.55;
+}
+
+.ready-tag {
+  padding: 2px 8px 0 8px;
+  background: var(--paper);
+  border: 3px solid transparent;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.ready-tag[data-ready='true'] {
+  background: var(--parried);
+  border-color: var(--ink);
+}
+
+/* Victory */
+.victory-name {
+  position: absolute;
+  top: 620px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.victory-name-left {
+  left: 186px;
+}
+
+.victory-name-right {
+  right: 186px;
+}
+
+.victory-name .tt-strip {
+  text-transform: uppercase;
+}
+
+.winner-tag {
+  padding: 2px 8px 0 8px;
+  background: var(--yellow);
+  border: 3px solid var(--ink);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+/* A notice over the duel ("Your friend left"). */
 .toast {
   position: absolute;
   left: 50%;
   top: 300px;
-  transform: translateX(-50%);
-  padding: 12px 28px;
-  font-size: 34px;
-  font-weight: bold;
-  background: var(--paper);
-  border: 4px solid var(--ink);
-  box-shadow: 6px 8px 0 rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%) rotate(-1deg);
+  padding: 12px 28px 8px;
+  font-family: var(--font-marker);
+  font-size: 32px;
+  background: var(--tape-note);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* ------------------------------------------------------------ duel HUD (built from the UI kit) */
@@ -353,15 +605,15 @@ body {
 
 /* ------------------------------------------------------------ debug overlay */
 
-/* Top left, under the valance, clear of the player plates on the ledge. */
+/* Top left, under the valance and the lobby's "leave the room" note, clear of the player plates on the ledge. */
 .debug-overlay {
   position: fixed;
-  top: 21vh;
+  top: 28vh;
   left: 0;
   z-index: 100;
   box-sizing: border-box;
   width: 300px;
-  max-height: 50vh;
+  max-height: 52vh;
   overflow-y: auto;
   padding: 8px;
   font-size: 12px;

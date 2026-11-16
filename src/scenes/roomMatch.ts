@@ -1,12 +1,11 @@
-import { clickLoopSeconds, createClickBuffer } from '../audio/click';
 import type { App } from '../app/app';
 import { clearRoomFromAddress } from '../app/address';
 import type { Connection } from '../app/connection';
 import type { Unsubscribe } from '../core/types';
+import { CLICK_TRACK } from '../data/tracks';
 import type { StartInfo } from '../net/room';
+import { loadTheme, playTheme } from '../theme/theme';
 import type { MatchSetup } from './types';
-
-const CLICK_LOOP_BEATS = 16;
 
 /** Leave the room for good and put the address bar back to the title. */
 export function leaveRoom(connection: Connection): void {
@@ -16,7 +15,9 @@ export function leaveRoom(connection: Connection): void {
 
 /**
  * A MatchSetup for two people. `info` comes from the room's `start` event (grid in this browser's clock).
- * Music for now is the generated click track at the grid's tempo, scheduled at the grid's start.
+ * Music is this player's own loaded copy of the room's battle theme (the host's pick, fetched or loaded
+ * by the guest before it could be ready), scheduled at the grid's start; the generated click track at the
+ * grid's tempo if somehow none is loaded. The friend's puppet is the one their drawings made.
  * `dispose` stops the music but leaves the room open for a rematch.
  */
 export function createRoomMatch(app: App, connection: Connection, info: StartInfo): MatchSetup {
@@ -26,11 +27,14 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
   const localName = connection.name;
   const names: [string, string] = room.localPlayer === 0 ? [localName, peerName] : [peerName, localName];
 
-  const bpm = info.grid.bpm;
-  const music = engine.playLoop(createClickBuffer(engine.context, bpm, CLICK_LOOP_BEATS), {
-    startTime: info.grid.startTime,
-    loopEnd: clickLoopSeconds({ bpm, beats: CLICK_LOOP_BEATS }),
-  });
+  const theme =
+    connection.exchange.theme ??
+    loadTheme(
+      { ...CLICK_TRACK, id: 'click', title: 'Click track', bpm: info.grid.bpm },
+      { store: app.store, engine, tunables: app.tunables },
+    );
+  const music = (async () => playTheme(await theme, engine, info.grid.startTime))();
+  const peerImages = connection.exchange.view.peerPuppet?.images ?? null;
 
   let rematchState = { local: false, peer: false };
   const offRematch = room.on((e) => {
@@ -46,8 +50,9 @@ export function createRoomMatch(app: App, connection: Connection, info: StartInf
     firstAttacker: info.firstAttacker,
     firstPhrase: info.firstPhrase,
     online: true,
+    puppets: room.localPlayer === 0 ? [null, peerImages] : [peerImages, null],
     dispose() {
-      music.stop();
+      void music.then((m) => m.stop());
     },
     watchRematch(cb) {
       cb(rematchState);

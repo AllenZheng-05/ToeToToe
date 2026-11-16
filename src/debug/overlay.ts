@@ -19,8 +19,59 @@ declare global {
       healthLog: App['healthLog'];
       /** Queue scripted clicks; see src/debug/script.ts. */
       script(events: ScriptEvent[]): void;
+      /** The friend's puppet as received in the room: its name, a checksum of the head's pixels, and how many sets have arrived. */
+      peerPuppet: { name: string; headChecksum: number; version: number } | null;
+      /** The room's battle theme as this side sees it. */
+      theme: {
+        status: string;
+        title: string | null;
+        bpm: number | null;
+        source: string | null;
+        loadedTitle: string | null;
+        canReady: boolean;
+        canStart: boolean;
+        message: string | null;
+      } | null;
     };
   }
+}
+
+/** FNV-1a over the head's pixels, so a test can tell one drawing from another. */
+function pixelChecksum(img: CanvasImageSource): number {
+  const w = 320;
+  const h = 240;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  if (!g) return 0;
+  g.drawImage(img, 0, 0, w, h);
+  const data = g.getImageData(0, 0, w, h).data;
+  let hash = 2166136261;
+  for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ (data[i] as number), 16777619) >>> 0;
+  return hash;
+}
+
+function peerPuppetInfo(app: App): { name: string; headChecksum: number; version: number } | null {
+  const peer = app.connection?.exchange.view.peerPuppet;
+  if (!peer) return null;
+  return { name: peer.name, headChecksum: pixelChecksum(peer.images.head), version: peer.version };
+}
+
+function themeInfo(app: App): NonNullable<Window['__ttt']>['theme'] {
+  const ex = app.connection?.exchange;
+  if (!ex) return null;
+  const v = ex.view;
+  return {
+    status: v.theme.status,
+    title: v.theme.offer?.title ?? null,
+    bpm: v.theme.offer?.bpm ?? null,
+    source: v.theme.offer?.source ?? null,
+    loadedTitle: v.theme.loaded?.info.title ?? null,
+    canReady: v.canReady,
+    canStart: v.canStart,
+    message: v.theme.message,
+  };
 }
 
 const FPS_SMOOTHING = 0.1;
@@ -56,6 +107,8 @@ export function createDebugOverlay(app: App): void {
       events: app.events,
       healthLog: app.healthLog,
       script: (events: ScriptEvent[]) => runner.add(events),
+      peerPuppet: peerPuppetInfo(app),
+      theme: themeInfo(app),
     }),
   });
 

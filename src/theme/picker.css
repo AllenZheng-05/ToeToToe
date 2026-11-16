@@ -37,6 +37,11 @@
   transform: scale(0.82);
   transform-origin: left center;
 }
+.tp-header .tp-back {
+  --vis: 36px;
+  --fs: 15px;
+  margin-left: 14px;
+}
 .tp-sub {
   padding: 3px 14px 0;
   background: var(--paper, #fffdf5);

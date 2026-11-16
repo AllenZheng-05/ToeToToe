@@ -12,12 +12,12 @@ export const PUPPET_BASE: readonly [Point, Point] = [
   { x: 950, y: 675 },
 ];
 /** Sword tip of a puppet nobody is steering. */
-const IDLE_TIP: readonly [Point, Point] = [
+export const IDLE_TIP: readonly [Point, Point] = [
   { x: 668, y: 436 },
   { x: 612, y: 446 },
 ];
 /** The puppet on the left faces right; the one on the right faces left, on every player's screen. */
-const FACING = [1, -1] as const;
+export const FACING = [1, -1] as const;
 /** How fast the opponent's tip eases toward its focus, per second. */
 const EASE_RATE = 10;
 

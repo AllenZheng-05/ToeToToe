@@ -119,6 +119,8 @@ export function letterTiles(text: string, o: TileOptions = {}): HTMLElement {
   chars.forEach((ch, idx) => {
     if (ch === ' ') {
       wordStart = true;
+      // A real space between words for text extraction; whitespace inside a flex row is not laid out.
+      root.appendChild(document.createTextNode(' '));
       return;
     }
     const st = styles[i++] as TileStyle;

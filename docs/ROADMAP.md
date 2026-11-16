@@ -35,29 +35,29 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 - [x] 3.1 B: asset pipeline, baked cutout textures, stage layers, scaling
 - [x] 3.2 B: puppet rig (segments, pins, sword tip at pointer), preset puppets as bitmaps
 - [x] 3.3 B: targets, strikes, banners, bars, phrase dots, asides
-- [ ] 3.4 B: title, lobby and victory screens from the mocks; self-hosted fonts
-- [ ] 3.5 O/R: screenshots compared with `design/screenshots/`
+- [x] 3.4 B: title, lobby and victory screens from the mocks; self-hosted fonts
+- [x] 3.5 O/R: screenshots compared with `design/screenshots/`
 
 ## Milestone 4: the workshop
 
 - [x] 4.1 B: drawing editor (tools, undo, guides, preview), four presets
-- [ ] 4.2 B: IndexedDB saving, saved-puppet row, sending drawings to the other player with validation
+- [x] 4.2 B: IndexedDB saving, saved-puppet row, sending drawings to the other player with validation
 
 ## Milestone 5: songs
 
 - [x] 5.1 B: placeholder loop generator script, `public/tracks/tracks.json`, `TrackSource`
 - [x] 5.2 B: battle theme screen, upload limits, tempo detection, nudges, tap-along, preview with click
-- [ ] 5.3 B: local saving, sending the song peer to peer with progress and hash check
+- [x] 5.3 B: local saving, sending the song peer to peer with progress and hash check
 
 ## Milestone 6: accounts
 
-- [ ] 6.1 B: Supabase migrations, guest sign-in, puppet sync, sleeping-database fallback, `docs/SUPABASE.md`
+- [x] 6.1 B: Supabase migrations, guest sign-in, puppet sync, sleeping-database fallback, `docs/SUPABASE.md`
 
 ## Milestone 7: launch polish
 
 - [ ] 7.1 B: phone layout, touch, rotate prompt
 - [ ] 7.2 B: input calibration screen
-- [ ] 7.3 B: remaining unmocked states
+- [x] 7.3 B: remaining unmocked states
 - [x] 7.4 H: deployment config, CSP, `docs/DEPLOY.md`, `docs/ASSETS.md`
 
 ## After everything

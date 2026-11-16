@@ -26,6 +26,8 @@ import { loadTheme, playTheme, withBeat, ThemeError, type LoadedTheme, type Them
 
 export interface ThemePickerOptions extends ThemeDeps {
   onDone?(selected: LoadedTheme): void;
+  /** Shows a "Back to the room" button in the header: leave without choosing again. */
+  onBack?(): void;
 }
 
 /** Seconds of lead before a preview starts, so the first beat is never in the past. */
@@ -98,6 +100,15 @@ export function createThemePicker(opts: ThemePickerOptions): { root: HTMLElement
   const heading = letterTiles('BATTLE THEME', { size: 36 });
   const sub = h('span', 'tp-sub', 'pick the song you fight to');
   header.append(heading, sub);
+  if (opts.onBack) {
+    const back = button('Back to the room', {
+      variant: 'pink',
+      testId: 'theme-back',
+      onClick: () => opts.onBack?.(),
+    });
+    back.classList.add('tp-back');
+    header.appendChild(back);
+  }
 
   // left panel
   const left = h('section', 'tp-panel tp-left');

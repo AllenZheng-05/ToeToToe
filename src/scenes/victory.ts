@@ -1,17 +1,44 @@
 import type { App } from '../app/app';
 import type { DuelSession } from '../core/session';
 import type { PlayerId, Unsubscribe } from '../core/types';
+import { labelStrip, letterTiles, tornNote } from '../ui/kit/kit';
+import { menuButton, node, quip, sceneRoot, signContent, tagline } from '../ui/menu';
 import { DuelScene } from './duel';
+import { LobbyScene } from './lobby';
+import { loadLocalPuppet, loadPartnerPuppet, MenuPuppets } from './menuPuppets';
 import { TitleScene } from './title';
-import type { MatchSetup, Scene } from './types';
+import type { MatchSetup, PuppetImagesSource, Scene } from './types';
 
 /** How long "Your friend left" stays up before returning to the title (UI only, not on the beat). */
 const LEFT_NOTICE_MS = 2200;
+/** The win line's tiles are 46 px wide with 5 px gaps (kit metrics); longer lines shrink to fit the sign. */
+const TILE_W = 46;
+const TILE_GAP = 5;
+const WORD_GAP = 18;
+const WIN_LINE_MAX_W = 560;
+const WIN_AUDIENCE = 'a child in row G: "again! again!"';
+
+/** "2 acts to 1". Pure. */
+export function scoreLine(actWins: readonly [number, number], winner: PlayerId): string {
+  const mine = actWins[winner];
+  const theirs = actWins[winner === 0 ? 1 : 0];
+  return `${mine} ${mine === 1 ? 'act' : 'acts'} to ${theirs}`;
+}
+
+/** Tile width that makes `text` fit the sign: the full size for short names, smaller for long ones. Pure. */
+export function winTileSize(text: string): number {
+  const letters = Array.from(text).filter((c) => c !== ' ').length;
+  const words = Math.max(0, text.split(' ').length - 1);
+  const natural = letters * (TILE_W + TILE_GAP) + words * WORD_GAP;
+  return natural <= WIN_LINE_MAX_W ? TILE_W : Math.max(24, Math.floor((TILE_W * WIN_LINE_MAX_W) / natural));
+}
 
 export class VictoryScene implements Scene {
   private root: HTMLElement | null = null;
   private cleanups: Unsubscribe[] = [];
   private leaveTimer: number | null = null;
+  private puppets: MenuPuppets | null = null;
+  private exited = false;
 
   constructor(
     private readonly app: App,
@@ -23,96 +50,135 @@ export class VictoryScene implements Scene {
   ) {}
 
   enter(): void {
-    const { setup, actWins, winner } = this;
-    if (this.session) this.app.session = this.session;
-    const root = document.createElement('div');
-    root.className = 'scene victory';
-    root.dataset.testid = 'victory';
+    const { setup, actWins, winner, app } = this;
+    if (this.session) app.session = this.session;
+    const root = sceneRoot('victory', 'victory');
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    root.appendChild(card);
-
-    const heading = document.createElement('h1');
-    heading.dataset.testid = 'winner';
-    heading.textContent = `${setup.names[winner].toUpperCase()} WINS!`;
-    card.appendChild(heading);
-
-    const score = document.createElement('p');
-    score.className = 'score';
-    score.dataset.testid = 'score';
-    score.textContent = `Acts: ${setup.names[0]} ${actWins[0]}, ${setup.names[1]} ${actWins[1]}`;
-    card.appendChild(score);
-
-    const rematchNote = document.createElement('p');
-    rematchNote.className = 'hint';
+    const sign = signContent(root, 'sign-victory');
+    const line = `${setup.names[winner].toUpperCase()} WINS!`;
+    const heading = node('h1', 'sign-heading', sign, 'winner');
+    heading.setAttribute('aria-label', line);
+    heading.appendChild(letterTiles(line, { palette: 'win', size: winTileSize(line) }));
+    const score = tagline(scoreLine(actWins, winner), 'score');
+    sign.appendChild(score);
+    const note = node('div', 'sign-note', sign);
+    const audience = quip(WIN_AUDIENCE, 2);
+    const rematchNote = tornNote('', { rotate: -1 });
     rematchNote.dataset.testid = 'rematch-status';
-    card.appendChild(rematchNote);
+    rematchNote.hidden = true;
+    note.append(audience, rematchNote);
+    const setNote = (text: string): void => {
+      rematchNote.textContent = text;
+      rematchNote.hidden = text === '';
+      audience.hidden = text !== '';
+    };
 
-    const buttons = document.createElement('div');
-    buttons.className = 'buttons';
-    card.appendChild(buttons);
+    // The ledge: each name under its puppet, and the buttons between.
+    for (const id of [0, 1] as const) {
+      const block = node('div', `victory-name victory-name-${id === 0 ? 'left' : 'right'}`, root);
+      block.appendChild(labelStrip(setup.names[id].toUpperCase()));
+      if (id === winner) {
+        const tag = node('span', 'winner-tag', block, 'winner-tag', 'winner');
+        tag.setAttribute('aria-label', `${setup.names[id]} won`);
+      }
+    }
 
-    const rematch = document.createElement('button');
-    rematch.type = 'button';
-    rematch.className = 'btn primary';
-    rematch.dataset.testid = 'rematch';
-    rematch.textContent = 'Rematch';
+    const row = node('div', 'ledge-row ledge-victory', root);
+    const rematch = menuButton(
+      'Rematch',
+      'rematch',
+      'primary',
+      () => {
+        const next = setup.rematch;
+        if (!next) return;
+        rematch.disabled = true;
+        if (setup.online) setNote('Waiting for your friend…');
+        void next().then(
+          (match) => this.app.go(new DuelScene(this.app, match)),
+          () => {
+            rematch.disabled = false;
+          },
+        );
+      },
+      'main',
+    );
     rematch.disabled = !setup.rematch;
-    rematch.addEventListener('click', () => {
-      const next = setup.rematch;
-      if (!next) return;
-      rematch.disabled = true;
-      if (setup.online) rematchNote.textContent = 'Waiting for your friend…';
-      void next().then(
-        (match) => this.app.go(new DuelScene(this.app, match)),
-        () => {
-          rematch.disabled = false;
-        },
-      );
-    });
-    buttons.appendChild(rematch);
+    const room = this.app.connection;
+    const backToRoom = menuButton(
+      'Back to the room',
+      'back-to-room',
+      'secondary',
+      () => {
+        if (!room) return;
+        void this.app.go(
+          new LobbyScene(this.app, { code: room.code, role: room.role, name: room.name, connection: room }),
+        );
+      },
+      'side',
+    );
+    backToRoom.hidden = !(setup.online && room);
+    const back = menuButton(
+      'Back to title',
+      'back-to-title',
+      'pink',
+      () => {
+        setup.leave?.();
+        void this.app.go(new TitleScene(this.app));
+      },
+      'side',
+    );
+    row.append(rematch, backToRoom, back);
 
-    const back = document.createElement('button');
-    back.type = 'button';
-    back.className = 'btn paper';
-    back.dataset.testid = 'back-to-title';
-    back.textContent = 'Back to title';
-    back.addEventListener('click', () => {
-      setup.leave?.();
-      void this.app.go(new TitleScene(this.app));
-    });
-    buttons.appendChild(back);
-
-    this.app.overlay.appendChild(root);
+    app.overlay.appendChild(root);
     this.root = root;
+
+    // The winner raises the sword; the other puppet drops theirs.
+    const puppets = new MenuPuppets(app);
+    this.puppets = puppets;
+    void this.showPuppets(puppets);
 
     if (setup.online) {
       const peer = setup.names[setup.localPlayer === 0 ? 1 : 0];
       if (setup.watchRematch) {
         this.cleanups.push(
           setup.watchRematch((s) => {
-            if (s.local) rematchNote.textContent = s.peer ? '' : 'Waiting for your friend…';
-            else rematchNote.textContent = s.peer ? `${peer} wants a rematch` : '';
+            if (s.local) setNote(s.peer ? '' : 'Waiting for your friend…');
+            else setNote(s.peer ? `${peer} wants a rematch` : '');
           }),
         );
       }
       this.cleanups.push(
         setup.transport.onState((state) => {
-          if (state === 'closed') this.onPeerLeft(card);
+          if (state === 'closed') this.onPeerLeft(root, note, setNote);
         }),
       );
     }
   }
 
-  private onPeerLeft(card: HTMLElement): void {
+  /** Both puppets, from the match if the duel kept them, else loaded again. */
+  private async showPuppets(puppets: MenuPuppets): Promise<void> {
+    const { setup, winner } = this;
+    const local = setup.localPlayer;
+    const other: PlayerId = local === 0 ? 1 : 0;
+    const given: [PuppetImagesSource | null, PuppetImagesSource | null] = setup.puppets ?? [null, null];
+    let mine = given[local];
+    let theirs = given[other];
+    if (!mine) mine = (await loadLocalPuppet(this.app))?.images ?? null;
+    theirs ??= await loadPartnerPuppet(null);
+    if (this.exited) return;
+    puppets.setImages(local, mine);
+    puppets.setImages(other, theirs);
+    puppets.setMood(winner, 'win');
+    puppets.setMood(winner === 0 ? 1 : 0, 'lose');
+  }
+
+  private onPeerLeft(root: HTMLElement, note: HTMLElement, setNote: (text: string) => void): void {
     if (this.leaveTimer !== null) return;
-    const notice = document.createElement('p');
-    notice.className = 'hint';
-    notice.dataset.testid = 'friend-left';
-    notice.textContent = 'Your friend left';
-    card.appendChild(notice);
-    for (const b of card.querySelectorAll('button')) b.disabled = true;
+    setNote('');
+    const left = tornNote('Your friend left', { rotate: -1 });
+    left.dataset.testid = 'friend-left';
+    note.appendChild(left);
+    for (const b of root.querySelectorAll('button')) b.disabled = true;
     this.leaveTimer = window.setTimeout(() => {
       this.setup.leave?.();
       void this.app.go(new TitleScene(this.app));
@@ -120,10 +186,13 @@ export class VictoryScene implements Scene {
   }
 
   exit(): void {
+    this.exited = true;
     for (const off of this.cleanups.splice(0)) off();
     if (this.leaveTimer !== null) window.clearTimeout(this.leaveTimer);
     this.leaveTimer = null;
     if (this.session && this.app.session === this.session) this.app.session = null;
+    this.puppets?.destroy();
+    this.puppets = null;
     this.root?.remove();
     this.root = null;
   }

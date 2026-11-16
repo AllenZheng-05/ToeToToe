@@ -1,5 +1,6 @@
 import ledgeUrl from '../assets/stage/ledge-cardboard.jpg';
 import skyUrl from '../assets/stage/sky.jpg';
+import { recordLocalDelete } from '../data/puppetSync';
 import { SETTINGS, type Store, type StoredPuppet } from '../data/store';
 import { PARTS, type PartKind } from '../puppet/parts';
 import { PRESETS, svgDataUrl } from '../puppet/presets';
@@ -627,7 +628,10 @@ export function createWorkshop(opts: WorkshopOptions): { root: HTMLElement; dest
     disarm();
     if (!isSavedId(id)) return;
     try {
+      // A puppet that was synced to an account must also go from the account on the next sync.
+      const record = await store.puppets.get(id);
       await store.puppets.delete(id);
+      if (record) await recordLocalDelete(store, record);
     } catch {
       say("Couldn't delete that puppet.");
       return;

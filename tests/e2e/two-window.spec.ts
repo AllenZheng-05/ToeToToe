@@ -90,6 +90,11 @@ interface Click {
 const script = (page: Page, events: Click[]): Promise<void> =>
   page.evaluate((e) => window.__ttt?.script(e), events);
 
+const peerOf = (page: Page): Promise<{ name: string; headChecksum: number; version: number } | null> =>
+  page.evaluate(() => window.__ttt?.peerPuppet ?? null);
+
+const themeOf = (page: Page) => page.evaluate(() => window.__ttt?.theme ?? null);
+
 const stateJson = (page: Page): Promise<string> =>
   page.evaluate(() => JSON.stringify(window.__ttt?.session?.state ?? null));
 
@@ -151,7 +156,15 @@ test('a room flow: create, join by link, and a third page is turned away', async
   await expect(B.getByTestId('player-1-name')).toContainText('Bo');
   await expect(A.getByTestId('status')).toHaveText('Bo joined');
   await expect(B.getByTestId('rtt')).toContainText('Round trip');
-  await A.screenshot({ path: 'test-results/screens/final-lobby.png' });
+  // Each side's friend puppet arrives once the drawings have crossed.
+  for (const page of [A, B]) await expect.poll(() => peerOf(page)).not.toBeNull();
+  await A.waitForTimeout(600);
+  await A.getByTestId('debug-toggle').click();
+  await B.getByTestId('debug-toggle').click();
+  await A.screenshot({ path: 'test-results/screens/final-lobby-host.png' });
+  await B.screenshot({ path: 'test-results/screens/final-lobby-guest.png' });
+  await A.getByTestId('debug-toggle').click();
+  await B.getByTestId('debug-toggle').click();
 
   // Ready states travel both ways, and only the host can start.
   await expect(B.getByTestId('start')).toBeHidden();
@@ -264,10 +277,14 @@ test('a whole match ends the same on both pages, and a rematch flips the first a
   for (const page of [A, B]) {
     await expect(page.getByTestId('victory')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('winner')).toHaveText('ADA WINS!');
-    await expect(page.getByTestId('score')).toHaveText('Acts: Ada 2, Bo 0');
+    await expect(page.getByTestId('score')).toHaveText('2 acts to 0');
     expect(await eventTypes(page)).not.toContain('desync');
   }
-  await A.screenshot({ path: 'test-results/screens/two-window-victory.png' });
+  // The winner's sword rises and the other drops theirs; give them a moment, and the stage to itself.
+  await A.waitForTimeout(900);
+  await A.getByTestId('debug-toggle').click();
+  await A.screenshot({ path: 'test-results/screens/final-victory.png' });
+  await A.getByTestId('debug-toggle').click();
 
   // Rematch: A asks first.
   await A.getByTestId('rematch').click();
@@ -300,4 +317,124 @@ test('the host sees "Your friend left" when the guest closes mid-duel', async ({
   await expect(A.getByText('Your friend left')).toBeVisible();
   await expect(A.getByTestId('title')).toBeVisible({ timeout: 10_000 });
   expect(new URL(A.url()).pathname).toBe('/');
+});
+
+/** Strokes across the head drawing, in a colour the teal preset does not have. */
+async function scribble(page: Page): Promise<void> {
+  await page.getByTestId('colour-1').click();
+  const box = await page.getByTestId('canvas').boundingBox();
+  if (!box) throw new Error('no drawing surface');
+  const at = (fx: number, fy: number) => [box.x + box.width * fx, box.y + box.height * fy] as const;
+  for (const [from, to] of [
+    [at(0.3, 0.4), at(0.6, 0.7)],
+    [at(0.6, 0.3), at(0.4, 0.8)],
+    [at(0.2, 0.7), at(0.7, 0.5)],
+  ] as const) {
+    await page.mouse.move(...from);
+    await page.mouse.down();
+    await page.mouse.move((from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - 8, { steps: 4 });
+    await page.mouse.move(...to, { steps: 4 });
+    await page.mouse.up();
+  }
+}
+
+test('a puppet drawn in the workshop from the lobby reaches the friend', async ({ open }) => {
+  const { A, B } = await pairedRoom(open, PLAIN_QUERY);
+  await expect.poll(() => peerOf(A)).not.toBeNull();
+  const before = await peerOf(A);
+  expect(before?.name).toBe('Teal sock'); // the first preset, until the guest draws
+
+  await B.getByTestId('edit-puppet').click();
+  await expect(B.getByTestId('workshop')).toBeVisible();
+  await expect(B.getByTestId('lobby')).toHaveCount(0);
+  await B.waitForTimeout(500);
+  // The debug panel would sit on the tools: fold it away, as for any picture of the stage.
+  await B.getByTestId('debug-toggle').click();
+  await B.screenshot({ path: 'test-results/screens/final-workshop.png' });
+  await scribble(B);
+  await B.getByTestId('puppet-name').fill('Scribble');
+  await B.getByTestId('done').click();
+  await expect(B.getByTestId('lobby')).toBeVisible();
+
+  // The host now holds a drawn puppet: a new name and different pixels.
+  await expect.poll(async () => (await peerOf(A))?.name).toBe('Scribble');
+  const after = await peerOf(A);
+  expect(after?.headChecksum).not.toBe(before?.headChecksum);
+  expect(after?.version).toBeGreaterThan(before?.version ?? 0);
+
+  // The room kept going while the guest was away: still two players.
+  await expect(A.getByTestId('status')).toHaveText('Bo joined');
+  await expect(B.getByTestId('player-0-name')).toContainText('Ada');
+  await expect(B.getByTestId('status')).toContainText("Joined Ada's room");
+});
+
+test('the host uploads a song, the guest gets it, and both play to its tempo', async ({ open }) => {
+  const { A, B } = await pairedRoom(open, PLAIN_QUERY);
+  await A.getByTestId('theme-change').click();
+  await expect(A.getByTestId('theme-picker')).toBeVisible();
+  await expect(A.getByTestId('lobby')).toHaveCount(0);
+  await expect(A.getByText('It is sent only to the friend in your room')).toBeVisible();
+  await A.getByTestId('upload-input').setInputFiles('public/tracks/placeholder-march-100.wav');
+  await expect(A.getByTestId('theme-message')).toContainText('beat', { timeout: 30_000 });
+  await A.getByTestId('debug-toggle').click();
+  await A.screenshot({ path: 'test-results/screens/final-theme.png' });
+  await A.getByTestId('done').click();
+  await expect(A.getByTestId('lobby')).toBeVisible();
+
+  // The guest fetches the file, checks it, and says so.
+  for (const page of [A, B]) {
+    await expect(page.getByTestId('theme-title')).toContainText('placeholder-march-100');
+    await expect(page.getByTestId('theme-title')).toContainText(/\b100(\.\d)? BPM/);
+  }
+  await expect.poll(async () => (await themeOf(B))?.status, { timeout: 30_000 }).toBe('ready');
+  const guestTheme = await themeOf(B);
+  expect(guestTheme?.source).toBe('upload');
+  expect(guestTheme?.loadedTitle).toBe(guestTheme?.title);
+  expect(Math.round(guestTheme?.bpm ?? 0)).toBe(100);
+  await expect.poll(async () => (await themeOf(A))?.canStart, { timeout: 30_000 }).toBe(true);
+
+  await B.getByTestId('ready-toggle').click();
+  await A.getByTestId('ready-toggle').click();
+  await expect(A.getByTestId('start')).toBeEnabled();
+  await A.getByTestId('start').click();
+  for (const page of [A, B]) {
+    await expect(page.getByTestId('banner')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__ttt?.grid !== null)).toBe(true);
+  }
+  const bpms = await Promise.all([A, B].map((p) => p.evaluate(() => window.__ttt?.grid?.bpm ?? 0)));
+  expect(bpms[0]).toBe(bpms[1]);
+  expect(Math.round(bpms[0] ?? 0)).toBe(100);
+
+  // The match runs for a phrase on audio clocks that advance.
+  for (const page of [A, B]) {
+    const clock = (): Promise<number> => page.evaluate(() => window.__ttt?.app.engine.clock.now() ?? 0);
+    const t0 = await clock();
+    const phrase0 = await page.evaluate(() => window.__ttt?.session?.view().clockPhrase ?? 0);
+    await expect.poll(async () => (await clock()) - t0, { timeout: 15_000 }).toBeGreaterThan(2.4);
+    expect(await page.evaluate(() => window.__ttt?.session?.view().clockPhrase ?? 0)).toBeGreaterThan(
+      phrase0,
+    );
+  }
+});
+
+test('the host picks a house track and the guest follows, losing its Ready', async ({ open }) => {
+  const { A, B } = await pairedRoom(open, PLAIN_QUERY);
+  await expect.poll(async () => (await themeOf(B))?.status).toBe('ready');
+  await B.getByTestId('ready-toggle').click();
+  await expect(A.getByTestId('player-1-ready')).toHaveText('Ready');
+
+  await A.getByTestId('theme-change').click();
+  await A.getByTestId('theme-row-placeholder-gallop-152').click();
+  await A.getByTestId('done').click();
+  await expect(A.getByTestId('lobby')).toBeVisible();
+
+  await expect(B.getByTestId('theme-title')).toContainText('Placeholder: Gallop (152)');
+  await expect(B.getByTestId('theme-title')).toContainText('152 BPM');
+  await expect.poll(async () => (await themeOf(B))?.status).toBe('ready');
+  expect((await themeOf(B))?.source).toBe('house');
+  // A different theme: the guest is no longer ready and the host sees it.
+  await expect(B.getByTestId('player-1-ready')).toHaveText('Not ready');
+  await expect(A.getByTestId('player-1-ready')).toHaveText('Not ready');
+  await expect.poll(async () => (await themeOf(A))?.canStart).toBe(true);
+  await expect(A.getByTestId('start')).toBeDisabled(); // not both ready any more
 });

@@ -1,130 +1,180 @@
-import type { App } from '../app/app';
-import { cleanName, loadName, MAX_NAME_LENGTH, saveName } from '../app/profile';
 import { showRoomInAddress } from '../app/address';
+import type { App } from '../app/app';
+import { MAX_NAME_LENGTH } from '../app/profile';
+import { createAccountPanel, type AccountPanel } from '../account/panel';
 import { generateRoomCode, normaliseRoomCode, roomCodeFromUrl } from '../net/codes';
+import { button, letterTiles, textInput, tornNote } from '../ui/kit/kit';
+import { menuButton, node, sceneRoot, signContent, tagline } from '../ui/menu';
 import { createBotMatch } from './botMatch';
 import { DuelScene } from './duel';
 import { LobbyScene } from './lobby';
+import { loadLocalPuppet, loadPartnerPuppet, MenuPuppets } from './menuPuppets';
 import type { Scene } from './types';
+import { WorkshopScene } from './workshopScene';
 
+const TAGLINE = 'a sock puppet duel for two';
+
+/** The title: the sign, the player's puppet with its sword following the pointer, and the way into a room. */
 export class TitleScene implements Scene {
   private root: HTMLElement | null = null;
   private starting = false;
   private cleanup: (() => void)[] = [];
+  private puppets: MenuPuppets | null = null;
+  private panel: AccountPanel | null = null;
+  private exited = false;
 
   constructor(private readonly app: App) {}
 
   enter(): void {
-    const root = document.createElement('div');
-    root.className = 'scene title';
-    root.dataset.testid = 'title';
+    const { app } = this;
+    const root = sceneRoot('title', 'title');
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    root.appendChild(card);
+    // The sign: the lettering and the two small ways in.
+    const sign = signContent(root);
+    const heading = node('h1', 'sign-heading', sign);
+    heading.setAttribute('aria-label', 'Toe to Toe');
+    heading.appendChild(letterTiles('TOE to TOE', { palette: 'title' }));
+    sign.appendChild(tagline(TAGLINE));
+    const side = node('div', 'sign-row', sign);
+    const bot = menuButton(
+      'Practise against the bot',
+      'play-bot',
+      'secondary',
+      () => void this.startBotMatch(),
+      'sign',
+    );
+    const workshop = menuButton(
+      'Puppet workshop',
+      'open-workshop',
+      'secondary',
+      () => void this.openWorkshop(),
+      'sign',
+    );
+    side.append(bot, workshop);
 
-    const heading = document.createElement('h1');
-    heading.textContent = 'Toe to Toe';
-    card.appendChild(heading);
-
-    const label = document.createElement('label');
-    label.className = 'field';
-    label.textContent = 'Your name';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.maxLength = MAX_NAME_LENGTH;
-    input.value = loadName();
-    input.dataset.testid = 'name-input';
-    input.autocomplete = 'off';
-    input.addEventListener('change', () => {
-      saveName(input.value);
-      input.value = cleanName(input.value);
+    // The ledge: name on the left, the room buttons in the middle.
+    const name = textInput({
+      label: 'YOUR NAME',
+      value: app.displayName,
+      maxLength: MAX_NAME_LENGTH,
+      testId: 'name-input',
     });
-    label.appendChild(input);
-    card.appendChild(label);
+    name.root.classList.add('title-name');
+    name.input.addEventListener('change', () => {
+      name.input.value = app.setDisplayName(name.input.value);
+    });
+    root.appendChild(name.root);
 
-    const buttons = document.createElement('div');
-    buttons.className = 'buttons';
-    card.appendChild(buttons);
-
-    const makeButton = (text: string, cls: string, testId: string): HTMLButtonElement => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = `btn ${cls}`;
-      b.dataset.testid = testId;
-      b.textContent = text;
-      buttons.appendChild(b);
-      return b;
-    };
-
+    const ledge = node('div', 'ledge-row', root);
     // A room code in the address bar (a shared link) makes joining that room the main button.
     const linked = roomCodeFromUrl(location.href);
     if (linked) {
-      const joinLinked = makeButton(`Join room ${linked}`, 'primary', 'join-linked');
-      joinLinked.addEventListener('click', () => void this.openRoom(linked, 'guest', input.value, false));
+      ledge.appendChild(
+        menuButton(
+          `Join room ${linked}`,
+          'join-linked',
+          'primary',
+          () => void this.openRoom(linked, 'guest', name.input.value, false),
+          'main',
+        ),
+      );
     }
-    const create = makeButton('Create a room', linked ? 'pink' : 'primary', 'create-room');
-    create.addEventListener('click', () => void this.openRoom(generateRoomCode(), 'host', input.value, true));
-    const join = makeButton('Join a room', 'pink', 'join-room');
+    ledge.appendChild(
+      menuButton(
+        'Create a room',
+        'create-room',
+        linked ? 'pink' : 'primary',
+        () => void this.openRoom(generateRoomCode(), 'host', name.input.value, true),
+        'main',
+      ),
+    );
 
-    const joinRow = document.createElement('div');
-    joinRow.className = 'field';
-    joinRow.dataset.testid = 'join-row';
+    // "Join a room" reveals the room code field.
+    const joinRow = node('div', 'join-row', root, 'join-row');
     joinRow.hidden = true;
-    const codeInput = document.createElement('input');
-    codeInput.type = 'text';
-    codeInput.placeholder = 'ROW-G-12';
-    codeInput.maxLength = 24;
-    codeInput.autocomplete = 'off';
-    codeInput.dataset.testid = 'join-code';
-    codeInput.setAttribute('aria-label', 'Room code');
-    const joinError = document.createElement('p');
-    joinError.className = 'hint';
+    const code = textInput({
+      label: 'ROOM CODE',
+      placeholder: 'ROW-G-12',
+      maxLength: 24,
+      testId: 'join-code',
+    });
+    code.input.setAttribute('aria-label', 'Room code');
+    const joinGo = button('Join', { variant: 'small', testId: 'join-go' });
+    const joinError = tornNote('', { rotate: -1 });
     joinError.dataset.testid = 'join-error';
     joinError.setAttribute('role', 'alert');
     joinError.hidden = true;
-    const joinGo = document.createElement('button');
-    joinGo.type = 'button';
-    joinGo.className = 'btn primary';
-    joinGo.dataset.testid = 'join-go';
-    joinGo.textContent = 'Join';
-    const submitCode = (): void => {
-      const code = normaliseRoomCode(codeInput.value);
-      if (code === null) {
+    const submit = (): void => {
+      const normalised = normaliseRoomCode(code.input.value);
+      if (normalised === null) {
         joinError.textContent = "That doesn't look like a room code.";
         joinError.hidden = false;
         return;
       }
       joinError.hidden = true;
-      void this.openRoom(code, 'guest', input.value, true);
+      void this.openRoom(normalised, 'guest', name.input.value, true);
     };
-    joinGo.addEventListener('click', submitCode);
-    codeInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') submitCode();
+    joinGo.addEventListener('click', submit);
+    code.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
     });
-    joinRow.append(codeInput, joinGo, joinError);
-    join.addEventListener('click', () => {
-      joinRow.hidden = false;
-      codeInput.focus();
-    });
-    card.appendChild(joinRow);
+    const joinLine = node('div', 'join-line', joinRow);
+    joinLine.append(code.root, joinGo);
+    joinRow.appendChild(joinError);
+    if (!linked) {
+      ledge.appendChild(
+        menuButton(
+          'Join a room',
+          'join-room',
+          'pink',
+          () => {
+            joinRow.hidden = false;
+            code.input.focus();
+          },
+          'main',
+        ),
+      );
+    }
 
-    const bot = makeButton('Practise against the bot', 'paper', 'play-bot');
-    bot.addEventListener('click', () => void this.startBotMatch(input.value));
-
-    if (this.app.params.bot) {
+    if (app.params.bot) {
       // ?bot=1: the first click anywhere is the user gesture that unlocks audio and starts the match.
-      const onDown = (): void => void this.startBotMatch(input.value);
+      const onDown = (): void => void this.startBotMatch();
       document.addEventListener('pointerdown', onDown, { once: true });
       this.cleanup.push(() => document.removeEventListener('pointerdown', onDown));
     }
 
-    this.app.overlay.appendChild(root);
+    app.overlay.appendChild(root);
     this.root = root;
+
+    // The puppets: the player's own and a partner, swords crossed, the player's tip following the pointer.
+    const puppets = new MenuPuppets(app);
+    this.puppets = puppets;
+    puppets.followPointer(0);
+    void (async () => {
+      const mine = await loadLocalPuppet(app);
+      const partner = await loadPartnerPuppet(mine?.presetId ?? null);
+      if (this.exited) return;
+      if (mine) puppets.setImages(0, mine.images);
+      if (partner) puppets.setImages(1, partner);
+    })();
+
+    // The account panel, once the account service (if any) is ready. Never waited for.
+    void app.account.then((account) => {
+      if (this.exited || !this.root) return;
+      const panel = createAccountPanel({ account, store: app.store, getDisplayName: () => app.displayName });
+      const corner = node('div', 'title-account', this.root);
+      corner.appendChild(panel.root);
+      this.panel = panel;
+    });
   }
 
   exit(): void {
+    this.exited = true;
     for (const fn of this.cleanup.splice(0)) fn();
+    this.panel?.destroy();
+    this.panel = null;
+    this.puppets?.destroy();
+    this.puppets = null;
     this.root?.remove();
     this.root = null;
   }
@@ -138,19 +188,25 @@ export class TitleScene implements Scene {
   ): Promise<void> {
     if (this.starting) return;
     this.starting = true;
-    const name = cleanName(rawName);
-    saveName(name);
+    const name = this.app.setDisplayName(rawName);
     await this.app.engine.resume();
     if (changeAddress) showRoomInAddress(code);
     await this.app.go(new LobbyScene(this.app, { code, role, name }));
   }
 
-  private async startBotMatch(rawName: string): Promise<void> {
+  private async startBotMatch(): Promise<void> {
     if (this.starting) return;
     this.starting = true;
-    saveName(rawName);
+    const name = this.root?.querySelector<HTMLInputElement>('[data-testid="name-input"]');
+    if (name) this.app.setDisplayName(name.value);
     // This runs inside a click, which is the user gesture that lets audio start.
     await this.app.engine.resume();
-    await this.app.go(new DuelScene(this.app, createBotMatch(this.app)));
+    await this.app.go(new DuelScene(this.app, await createBotMatch(this.app)));
+  }
+
+  private async openWorkshop(): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    await this.app.go(new WorkshopScene(this.app, { back: () => new TitleScene(this.app) }));
   }
 }
