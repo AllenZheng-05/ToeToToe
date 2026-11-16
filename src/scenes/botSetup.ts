@@ -7,6 +7,7 @@ import type { LoadedTheme } from '../theme/theme';
 import { button, labelStrip, letterTiles } from '../ui/kit/kit';
 import { menuButton, node, sceneRoot, signContent, tagline } from '../ui/menu';
 import { createBotMatch, type BotMatchOptions } from './botMatch';
+import { DIFFICULTY_TABLE } from '../net/botDifficulty';
 import { DIFFICULTIES, resolveBotPuppet, SURPRISE, type BotDifficulty } from './botSetupModel';
 import { DuelScene } from './duel';
 import { themeText } from './lobbyModel';
@@ -17,7 +18,6 @@ import type { Scene } from './types';
 import { WorkshopScene } from './workshopScene';
 
 const TAGLINE = 'pick your fight';
-const DIFFICULTY_LABEL: Record<BotDifficulty, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 /** The swatch colour of each preset on its button (the sock's own body colour). */
 const PRESET_COLOUR: Record<string, string> = {
   'preset-teal': '#3fb8af',
@@ -145,10 +145,10 @@ export class BotSetupScene implements Scene {
     // Bot difficulty.
     const hardRow = node('div', 'bs-row', right, 'bot-row-difficulty');
     hardRow.appendChild(labelStrip('BOT DIFFICULTY'));
-    const steps = node('div', 'bs-steps', hardRow);
+    const steps = node('div', 'bs-grid', hardRow);
     const levels = new Map<BotDifficulty, HTMLButtonElement>();
     for (const d of DIFFICULTIES) {
-      const b = button(DIFFICULTY_LABEL[d], {
+      const b = button(DIFFICULTY_TABLE[d].label, {
         variant: 'small',
         testId: `bot-difficulty-${d}`,
         onClick: () => {

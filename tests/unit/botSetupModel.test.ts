@@ -12,9 +12,12 @@ const IDS = ['preset-teal', 'preset-pink', 'preset-yellow', 'preset-blue'];
 const setup = (botPuppet: string): BotSetup => ({ version: 1, difficulty: 'medium', botPuppet });
 
 describe('parseBotSetup', () => {
-  it('keeps a good record', () => {
+  it('keeps a good record, every level included', () => {
     const good: BotSetup = { version: 1, difficulty: 'hard', botPuppet: 'preset-blue' };
     expect(parseBotSetup(good, IDS)).toEqual(good);
+    for (const difficulty of ['easy', 'medium', 'hard', 'expert'] as const) {
+      expect(parseBotSetup({ ...good, difficulty }, IDS).difficulty).toBe(difficulty);
+    }
     expect(parseBotSetup({ ...good, botPuppet: 'surprise' }, IDS).botPuppet).toBe('surprise');
   });
 
@@ -30,6 +33,10 @@ describe('parseBotSetup', () => {
       difficulty: 'medium',
       botPuppet: 'preset-blue',
     });
+    // Unknown levels (a later version's, or junk) fall back to Medium; old records keep working.
+    for (const junk of ['Expert', 'nightmare', '', 4, null, ['expert']]) {
+      expect(parseBotSetup({ difficulty: junk, botPuppet: 'preset-blue' }, IDS).difficulty).toBe('medium');
+    }
     expect(parseBotSetup({ difficulty: 'easy', botPuppet: 42 }, IDS)).toEqual({
       version: 1,
       difficulty: 'easy',
@@ -64,6 +71,8 @@ describe('accuracyFor', () => {
     expect(accuracyFor('easy')).toBeLessThan(accuracyFor('medium') - 0.15);
     expect(accuracyFor('hard')).toBeGreaterThan(accuracyFor('medium') + 0.1);
     expect(accuracyFor('hard')).toBeLessThanOrEqual(1);
+    expect(accuracyFor('expert')).toBeGreaterThan(accuracyFor('hard'));
+    expect(accuracyFor('expert')).toBeLessThanOrEqual(1);
   });
 });
 

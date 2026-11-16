@@ -76,7 +76,8 @@ describe('BotDriver', () => {
     const clock = new FakeClock(0);
     const tunables = createTunables();
     const bot = createBotOpponent({ clock, grid, tunables, firstAttacker: 0, firstPhrase: 1 });
-    expect(bot.driver.options).toEqual({ accuracy: 0.75, bravoRate: 0.4, strikes: [3, 6], seed: 1 });
+    // Medium by default: its fresh parry chance and Bravo share, from the difficulty table.
+    expect(bot.driver.options).toEqual({ difficulty: 'medium', accuracy: 0.75, bravoRate: 0.4, seed: 1 });
     bot.driver.options.accuracy = 0.1;
     expect(bot.driver.options.accuracy).toBe(0.1);
     expect(bot.transport.role).toBe('host');

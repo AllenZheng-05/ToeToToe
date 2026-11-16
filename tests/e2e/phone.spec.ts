@@ -105,6 +105,13 @@ test('the bot set-up screen fits a phone and its buttons are tap-sized', async (
   await page.getByTestId('bot-puppet-yellow').tap();
   await page.getByTestId('bot-difficulty-easy').tap();
   await expect(page.getByTestId('bot-difficulty-easy')).toHaveAttribute('aria-pressed', 'true');
+  // Four levels, all on screen and tap-sized (expectTouchSized above covers every button of the screen).
+  for (const d of ['easy', 'medium', 'hard', 'expert']) {
+    await expect(page.getByTestId(`bot-difficulty-${d}`)).toBeInViewport({ ratio: 1 });
+  }
+  await page.getByTestId('bot-difficulty-expert').tap();
+  await expect(page.getByTestId('bot-difficulty-expert')).toHaveAttribute('aria-pressed', 'true');
+  await expectNoScrollbars(page);
   await page.getByTestId('debug-toggle').tap();
   await page.screenshot({ path: 'test-results/screens/phone-bot-setup.png' });
   await page.getByTestId('bot-start').tap();

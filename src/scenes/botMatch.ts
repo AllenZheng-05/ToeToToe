@@ -7,7 +7,7 @@ import { PRESETS } from '../puppet/presets';
 import { loadPresetImages } from '../stage/art/puppetView';
 import { playTheme, type LoadedTheme } from '../theme/theme';
 import { loadSelectedPuppet } from '../workshop/selection';
-import { accuracyFor, resolveBotPuppet } from './botSetupModel';
+import { resolveBotPuppet } from './botSetupModel';
 import type { MatchSetup, Scene } from './types';
 
 /** Seconds between the click and the first beat, so the count-in has something to start from. */
@@ -40,7 +40,8 @@ export async function createBotMatch(app: App, o: BotMatchOptions): Promise<Matc
   const overrides: Partial<BotOptions> = {};
   if (params.botAccuracy !== null) overrides.accuracy = Math.min(1, Math.max(0, params.botAccuracy));
   if (params.seed !== null) overrides.seed = params.seed;
-  const options: Partial<BotOptions> = { accuracy: accuracyFor(app.botSetup.difficulty), ...overrides };
+  // Without ?botAccuracy= the level's own parry chance applies, sliding down over each act.
+  const options: Partial<BotOptions> = { difficulty: app.botSetup.difficulty, ...overrides };
 
   // The bot's puppet: the chosen preset, or one that differs from the player's own.
   const presetIds = PRESETS.map((p) => p.id);

@@ -2,6 +2,7 @@ import type { App, FrameInfo } from '../app/app';
 import { DEFAULT_TUNABLES } from '../core/tunables';
 import type { SessionEvent } from '../core/session';
 import type { BeatGrid, Tunables } from '../core/types';
+import { BotDriver } from '../net/bot';
 import type { Room } from '../net/room';
 import type { BotSetup } from '../scenes/botSetupModel';
 import { ScriptRunner, type ScriptEvent } from './script';
@@ -23,6 +24,8 @@ declare global {
       /** The bot match set-up (difficulty, the bot's puppet) and, in a bot match, the preset the bot wears. */
       botSetup: BotSetup;
       botPuppetId: string | null;
+      /** In a bot match: the opponent's level, its current attack pattern, and its parry chance and Bravo share right now. */
+      bot: { level: string; pattern: string | null; accuracy: number; bravoRate: number } | null;
       /** The friend's puppet as received in the room: its name, a checksum of the head's pixels, and how many sets have arrived. */
       peerPuppet: { name: string; headChecksum: number; version: number } | null;
       /** The room's battle theme as this side sees it. */
@@ -60,6 +63,17 @@ function peerPuppetInfo(app: App): { name: string; headChecksum: number; version
   const peer = app.connection?.exchange.view.peerPuppet;
   if (!peer) return null;
   return { name: peer.name, headChecksum: pixelChecksum(peer.images.head), version: peer.version };
+}
+
+function botInfo(app: App): NonNullable<Window['__ttt']>['bot'] {
+  const bot = app.match?.bot;
+  if (!(bot instanceof BotDriver)) return null;
+  return {
+    level: bot.options.difficulty,
+    pattern: bot.pattern,
+    accuracy: bot.parryChance(),
+    bravoRate: bot.bravoShare(),
+  };
 }
 
 function themeInfo(app: App): NonNullable<Window['__ttt']>['theme'] {
@@ -115,6 +129,7 @@ export function createDebugOverlay(app: App): void {
       botPuppetId: app.match?.botPuppetId ?? null,
       peerPuppet: peerPuppetInfo(app),
       theme: themeInfo(app),
+      bot: botInfo(app),
     }),
   });
 
@@ -257,7 +272,8 @@ export function createDebugOverlay(app: App): void {
     }
 
     const bot = app.match?.bot;
-    if (bot && document.activeElement !== acc) acc.value = String(bot.options.accuracy);
+    // The parry chance in force now (it slides down over each act unless a value was typed here or in the URL).
+    if (bot && document.activeElement !== acc) acc.value = bot.options.accuracy.toFixed(3);
     acc.disabled = !bot;
 
     for (const [key, input] of inputs) {

@@ -1,26 +1,44 @@
-import { slotTime, slotsPerPhrase } from '../core/beat';
+import { phraseStart, slotTime, slotsPerPhrase } from '../core/beat';
+import { otherPlayer } from '../core/duel';
 import { DuelSession } from '../core/session';
 import type { BeatGrid, Clock, PlayerId, Transport, Tunables } from '../core/types';
 import { createLoopbackPair } from './loopback';
+import { tiredness, type BotDifficulty } from './botDifficulty';
+import { X_MAX, X_MIN, Y_MAX, Y_MIN, type PatternName } from './botPatterns';
+import { chooseAttack } from './botStrategy';
 
+/** What a caller may set. */
 export interface BotOptions {
-  /** Chance of parrying each strike, 0..1. Default 0.75. */
+  /** The level: attack patterns, parry chance and Bravo share (see botDifficulty.ts). Default 'medium'. */
+  difficulty: BotDifficulty;
+  /**
+   * Chance of parrying each strike, 0..1. When given, it is used as a constant (no tiredness); otherwise the
+   * level's chance, sliding down over each act.
+   */
   accuracy: number;
-  /** Of successful parries, the share that are Bravo. Default 0.4. */
+  /** Of successful parries, the share that are Bravo. Constant when given, like `accuracy`. */
   bravoRate: number;
-  /** Strikes the bot tries to plant per attack phrase, inclusive range. Default [3, 6]. */
+  /**
+   * Strikes per attack phrase, inclusive range. When given, the bot ignores the patterns and plants that many
+   * strikes on a random walk, whether or not it can afford them (a stress setting for tests).
+   */
   strikes: [number, number];
   /** Seed for the bot's deterministic random generator. Default 1. */
   seed: number;
 }
 
-const DEFAULT_OPTIONS: BotOptions = { accuracy: 0.75, bravoRate: 0.4, strikes: [3, 6], seed: 1 };
+/** The options as the driver holds them: `accuracy` and `bravoRate` always read a number (the live value). */
+export interface BotDriverOptions {
+  difficulty: BotDifficulty;
+  /** Reads the parry chance in force now; writing it fixes the chance at that value. */
+  accuracy: number;
+  /** Reads the Bravo share in force now; writing it fixes the share at that value. */
+  bravoRate: number;
+  strikes?: [number, number];
+  seed: number;
+}
 
-const X_MIN = 0.12;
-const X_MAX = 0.88;
-const Y_MIN = 0.15;
-const Y_MAX = 0.85;
-/** Random-walk step lengths, in play-area widths. */
+/** Free-form walk step lengths, in play-area widths (only used with an explicit `strikes` range). */
 const STEP_MIN = 0.15;
 const STEP_MAX = 0.45;
 /** Timing errors stay inside this share of their window. */
@@ -47,8 +65,12 @@ interface PlannedClick {
 
 /** Plays one side of a match by feeding synthetic clicks into a session. Uses no timers: call update() every frame. */
 export class BotDriver {
-  readonly options: BotOptions;
+  readonly options: BotDriverOptions;
+  /** The pattern of the current attack phrase ('free' for the explicit-strikes walk), or null before the first. */
+  pattern: PatternName | 'free' | null = null;
   private readonly rng: () => number;
+  private accuracyOverride: number | null;
+  private bravoOverride: number | null;
   private attackPhrase: number | null = null;
   private attackPlan: PlannedClick[] = [];
   private defendPhrase: number | null = null;
@@ -62,12 +84,46 @@ export class BotDriver {
     private readonly deps: { clock: Clock; grid: BeatGrid; tunables: Tunables },
     options: Partial<BotOptions> = {},
   ) {
-    this.options = {
-      ...DEFAULT_OPTIONS,
-      ...options,
-      strikes: [...(options.strikes ?? DEFAULT_OPTIONS.strikes)],
-    };
-    this.rng = mulberry32(this.options.seed);
+    this.accuracyOverride = options.accuracy ?? null;
+    this.bravoOverride = options.bravoRate ?? null;
+    this.rng = mulberry32(options.seed ?? 1);
+    const o = { difficulty: options.difficulty ?? 'medium', seed: options.seed ?? 1 } as BotDriverOptions;
+    if (options.strikes) o.strikes = [options.strikes[0], options.strikes[1]];
+    Object.defineProperties(o, {
+      accuracy: {
+        enumerable: true,
+        get: () => this.parryChance(),
+        set: (v: number) => {
+          this.accuracyOverride = v;
+        },
+      },
+      bravoRate: {
+        enumerable: true,
+        get: () => this.bravoShare(),
+        set: (v: number) => {
+          this.bravoOverride = v;
+        },
+      },
+    });
+    this.options = o;
+  }
+
+  /** The level's parry chance and Bravo share now: fresh at the start of each act, tired later in it. */
+  private currentTiredness(): { accuracy: number; bravoRate: number } {
+    const t = this.deps.tunables;
+    const sinceActStart =
+      this.deps.clock.now() - phraseStart(this.deps.grid, this.session.state.actFirstPhrase, t);
+    return tiredness(this.options.difficulty, Math.max(0, sinceActStart), t.actDurationSec);
+  }
+
+  /** The chance of parrying a strike right now. */
+  parryChance(): number {
+    return this.accuracyOverride ?? this.currentTiredness().accuracy;
+  }
+
+  /** Of parries right now, the share that are Bravo. */
+  bravoShare(): number {
+    return this.bravoOverride ?? this.currentTiredness().bravoRate;
   }
 
   update(): void {
@@ -82,8 +138,14 @@ export class BotDriver {
 
   private attack(phrase: number, now: number): void {
     if (this.attackPhrase !== phrase) {
+      if (this.options.strikes === undefined) {
+        // Plan from the settled state: wait for the previous phrase's resolve (stamina regeneration) to land.
+        const s = this.session.state;
+        if (s.phase !== 'attack' || s.phrase !== phrase) return;
+      }
       this.attackPhrase = phrase;
-      this.attackPlan = this.planAttack(phrase);
+      this.attackPlan =
+        this.options.strikes === undefined ? this.planPattern(phrase) : this.planAttack(phrase);
     }
     for (const c of this.attackPlan) {
       if (!c.fired && now >= c.time) {
@@ -93,10 +155,38 @@ export class BotDriver {
     }
   }
 
+  /** One named pattern, trimmed so the rules accept every strike. */
+  private planPattern(phrase: number): PlannedClick[] {
+    const t = this.deps.tunables;
+    const players = this.session.state.players;
+    const me = this.session.view().localPlayer;
+    const chosen = chooseAttack(this.options.difficulty, {
+      rng: this.rng,
+      tunables: t,
+      start: { x: this.walkX, y: this.walkY },
+      me: players[me],
+      opp: players[otherPlayer(me)],
+    });
+    this.pattern = chosen.pattern;
+    const last = chosen.strikes[chosen.strikes.length - 1];
+    if (last) {
+      this.walkX = last.x;
+      this.walkY = last.y;
+    }
+    return chosen.strikes.map((s) => ({
+      time: slotTime(this.deps.grid, phrase, s.slot, t),
+      x: s.x,
+      y: s.y,
+      fired: false,
+    }));
+  }
+
+  /** The free-form plan: a random count of random slots on a random walk (explicit `strikes` only). */
   private planAttack(phrase: number): PlannedClick[] {
+    this.pattern = 'free';
     const t = this.deps.tunables;
     const spp = slotsPerPhrase(t);
-    const [lo, hi] = this.options.strikes;
+    const [lo, hi] = this.options.strikes ?? [3, 6];
     const minCount = Math.max(0, Math.min(lo, hi));
     const maxCount = Math.min(spp, Math.max(lo, hi));
     const count = Math.max(0, Math.min(spp, minCount + Math.floor(this.rng() * (maxCount - minCount + 1))));
@@ -158,8 +248,8 @@ export class BotDriver {
 
   private planParry(phrase: number, strike: { slot: number; x: number; y: number }): PlannedClick | null {
     const t = this.deps.tunables;
-    if (this.rng() >= this.options.accuracy) return null;
-    const bravo = this.rng() < this.options.bravoRate;
+    if (this.rng() >= this.parryChance()) return null;
+    const bravo = this.rng() < this.bravoShare();
     const u = this.rng();
     // Bravo: inside 80% of the Bravo window. Otherwise strictly between the Bravo edge and 80% of the Good window,
     // which keeps clear of the window edges. (The session's input grace now absorbs a late-handled frame, so the margin

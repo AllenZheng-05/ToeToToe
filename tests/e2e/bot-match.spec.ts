@@ -136,7 +136,9 @@ test('the bot set-up screen: theme, puppets and difficulty reach the match, surv
   await page.getByTestId('bot-start').click();
   await expect(page.getByTestId('banner')).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__ttt?.grid?.bpm)).toBe(152);
-  expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBe(0.92);
+  // Hard's fresh parry chance (it tires over the act), read in the count-in.
+  expect(await page.evaluate(() => window.__ttt?.bot?.level)).toBe('hard');
+  expect(await page.evaluate(() => window.__ttt?.bot?.accuracy)).toBeCloseTo(0.9, 2);
   expect(await page.evaluate(() => window.__ttt?.botPuppetId)).toBe('preset-blue');
   await expect(page.getByTestId('victory')).toBeVisible({ timeout: 100_000 });
 
@@ -157,6 +159,73 @@ test('the bot set-up screen: theme, puppets and difficulty reach the match, surv
   await expect(page.getByTestId('bot-theme-title')).toContainText('Placeholder: Gallop (152)');
   expect(await setupState(page)).toEqual({ difficulty: 'hard', bot: 'preset-blue' });
 });
+
+test('the bot set-up screen offers four levels in two rows of two, and Expert starts an Expert bot', async ({
+  page,
+}) => {
+  await page.goto('/?debug=1&bpm=120&res=1');
+  await page.getByTestId('play-bot').click();
+  await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
+  const levels = ['easy', 'medium', 'hard', 'expert'] as const;
+  const boxes = [];
+  for (const d of levels) {
+    const b = page.getByTestId(`bot-difficulty-${d}`);
+    await expect(b).toBeVisible();
+    await expect(b).toHaveText(d[0]!.toUpperCase() + d.slice(1));
+    boxes.push(await b.boundingBox());
+  }
+  const [easy, medium, hard, expert] = boxes;
+  // The buttons are torn paper, a little rotated: rows match to within a few pixels.
+  expect(Math.abs(easy!.y - medium!.y)).toBeLessThan(6);
+  expect(Math.abs(hard!.y - expert!.y)).toBeLessThan(6);
+  expect(hard!.y).toBeGreaterThan(easy!.y + easy!.height - 1);
+  expect(medium!.x).toBeGreaterThan(easy!.x + easy!.width - 1);
+  expect(expert!.x).toBeGreaterThan(hard!.x + hard!.width - 1);
+  // The panel clears the Start button.
+  const row = await page.getByTestId('bot-row-difficulty').boundingBox();
+  const start = await page.getByTestId('bot-start').boundingBox();
+  expect(row!.y + row!.height).toBeLessThanOrEqual(start!.y);
+
+  await page.getByTestId('bot-difficulty-expert').click();
+  await expect(page.getByTestId('bot-difficulty-expert')).toHaveAttribute('aria-pressed', 'true');
+  for (const d of ['easy', 'medium', 'hard']) {
+    await expect(page.getByTestId(`bot-difficulty-${d}`)).toHaveAttribute('aria-pressed', 'false');
+  }
+  await page.getByTestId('debug-toggle').click();
+  await page.mouse.move(640, 450);
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'test-results/screens/bot-setup-expert.png' });
+  await page.getByTestId('debug-toggle').click();
+
+  await page.getByTestId('bot-start').click();
+  await expect(page.getByTestId('banner')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__ttt?.bot?.level)).toBe('expert');
+  expect(await page.evaluate(() => window.__ttt?.bot?.accuracy)).toBeCloseTo(0.97, 2);
+  expect(await page.evaluate(() => window.__ttt?.bot?.bravoRate)).toBeCloseTo(0.85, 2);
+});
+
+for (const level of ['easy', 'expert'] as const) {
+  test(`an unattended match against the ${level} bot reaches victory`, async ({ page }) => {
+    await page.goto(`/?debug=1&autoplay=1&bpm=180&seed=3&tunables=${SHORT}&res=1`);
+    await page.getByTestId('play-bot').click();
+    await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
+    await page.getByTestId(`bot-difficulty-${level}`).click();
+    await page.getByTestId('bot-start').click();
+    await expect(page.getByTestId('banner')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__ttt?.bot?.level)).toBe(level);
+    // The bot plants a named pattern in its first attack phrase.
+    await expect
+      .poll(() => page.evaluate(() => window.__ttt?.bot?.pattern ?? null), { timeout: 60_000 })
+      .not.toBeNull();
+    await expect(page.getByTestId('victory')).toBeVisible({ timeout: 120_000 });
+    const result = await page.evaluate(() => ({
+      phase: window.__ttt?.session?.state.phase,
+      wins: [...(window.__ttt?.session?.state.actWins ?? [])],
+    }));
+    expect(result.phase).toBe('matchOver');
+    expect(Math.max(...result.wins)).toBe(2);
+  });
+}
 
 test('Surprise me hides the bot puppet behind a mystery card and is rolled at Start', async ({ page }) => {
   await page.goto('/?debug=1&bpm=120&res=1');
@@ -210,7 +279,8 @@ test('with ?bot=1 the first click starts a match without the set-up screen', asy
   await startBot(page);
   await expect(page.getByTestId('bot-setup')).toHaveCount(0);
   // The saved set-up is Medium; ?botAccuracy= overrides it when present.
-  expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBe(0.75);
+  expect(await page.evaluate(() => window.__ttt?.bot?.level)).toBe('medium');
+  expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBeCloseTo(0.75, 2);
   await page.goto('/?debug=1&bot=1&bpm=120&botAccuracy=0.4');
   await startBot(page);
   expect(await page.evaluate(() => window.__ttt?.app.match?.bot?.options.accuracy)).toBe(0.4);

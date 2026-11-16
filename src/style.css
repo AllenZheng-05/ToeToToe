@@ -701,23 +701,11 @@ body {
   width: 100%;
 }
 
-.bs-steps {
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  width: 100%;
-}
-
 .bs-choice {
   flex: 1 1 0;
   min-width: 0;
   --px: 8px;
   --fs: 15px;
-}
-
-.bs-steps .bs-choice {
-  --px: 4px;
-  --fs: 14px;
 }
 
 .bs-wide {
@@ -743,8 +731,8 @@ body {
 /* Surprise me: a grey cut-paper card over the bot's puppet, with a question mark. */
 .bs-mystery {
   position: absolute;
-  left: 758px;
-  top: 382px;
+  left: 768px;
+  top: 396px;
   width: 110px;
   height: 110px;
   display: flex;
@@ -774,8 +762,7 @@ body {
   padding: 8px 10px 10px;
 }
 
-.compact .bs-choice,
-.compact .bs-steps .bs-choice {
+.compact .bs-choice {
   --px: 4px;
   --fs: 13px;
 }

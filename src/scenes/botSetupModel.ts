@@ -1,8 +1,8 @@
 /** The bot match set-up: what the player chose on the "Play against the bot" screen. Pure; no DOM. */
 
-export type BotDifficulty = 'easy' | 'medium' | 'hard';
+import { DIFFICULTIES, DIFFICULTY_TABLE, type BotDifficulty } from '../net/botDifficulty';
 
-export const DIFFICULTIES: readonly BotDifficulty[] = ['easy', 'medium', 'hard'];
+export { DIFFICULTIES, type BotDifficulty };
 
 export interface BotSetup {
   version: 1;
@@ -23,14 +23,9 @@ export const DEFAULT_BOT_SETUP: BotSetup = { version: 1, difficulty: 'medium', b
 const DEFAULT_PRESET = 'preset-pink';
 const FALLBACK_PRESET = 'preset-teal';
 
-/**
- * Bot accuracy (the chance of parrying each strike) for each step. Medium is the bot's long-standing default
- * (0.75); Easy misses about half the strikes, Hard about one in twelve.
- */
-const ACCURACY: Record<BotDifficulty, number> = { easy: 0.5, medium: 0.75, hard: 0.92 };
-
+/** A fresh bot's chance of parrying each strike at this level (it tires over an act; see botDifficulty.ts). */
 export function accuracyFor(d: BotDifficulty): number {
-  return ACCURACY[d];
+  return DIFFICULTY_TABLE[d].parry.fresh;
 }
 
 /** Anything stored is untrusted: unknown fields dropped, bad values replaced by defaults. */
