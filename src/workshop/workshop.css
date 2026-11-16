@@ -1,0 +1,427 @@
+/* Puppet workshop (mock 3). Px are in the 1280x720 design space. Uses the UI kit variables. */
+.ws-root {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  box-sizing: border-box;
+  color: var(--ink);
+  font-family: var(--font-type);
+  background-color: var(--mat);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 40px 40px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ws-root [class*='ws-'] {
+  box-sizing: border-box;
+}
+.ws-abs {
+  position: absolute;
+}
+
+/* ---------- header ---------- */
+.ws-header {
+  position: absolute;
+  left: 40px;
+  top: 20px;
+  width: 1200px;
+  height: 66px;
+  border: 4px solid var(--white);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  transform: rotate(-0.4deg);
+  background-color: #b99a6b;
+  background-size: cover;
+  background-position: center;
+}
+.ws-header-row {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+.ws-subtitle {
+  padding: 3px 14px 0 14px;
+  background: var(--paper);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+/* ---------- small headings ---------- */
+.ws-strip {
+  align-self: flex-start;
+  padding: 1px 10px;
+  background: var(--ink);
+  color: var(--white);
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+/* ---------- tools ---------- */
+.ws-tools {
+  position: absolute;
+  left: 40px;
+  top: 106px;
+  width: 168px;
+  padding: 14px;
+  background: var(--paper);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transform: rotate(-0.6deg);
+}
+.ws-grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ws-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.ws-grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  justify-items: center;
+}
+.ws-icon-btn {
+  height: 52px;
+  padding: 0;
+  background: var(--white);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  touch-action: manipulation;
+}
+.ws-icon-btn svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ws-icon-btn[aria-pressed='true'] {
+  background: var(--yellow);
+}
+.ws-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ws-icon-btn.ws-confirm {
+  background: var(--red);
+  color: var(--white);
+}
+.ws-size-btn {
+  height: 44px;
+}
+.ws-dot {
+  display: block;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.ws-swatch {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 3px solid var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ws-swatch[aria-pressed='true'] {
+  box-shadow:
+    0 0 0 3px var(--paper),
+    0 0 0 6px var(--ink);
+}
+.ws-root button:focus-visible,
+.ws-root input:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* ---------- tabs and page ---------- */
+.ws-tabs {
+  position: absolute;
+  left: 232px;
+  top: 106px;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+.ws-tab {
+  height: 34px;
+  padding: 2px 16px 0 16px;
+  background: var(--ink);
+  color: var(--white);
+  border: 0;
+  border-radius: 0;
+  font-family: var(--font-type);
+  font-size: 18px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ws-tab[aria-pressed='true'] {
+  background: var(--yellow);
+  color: var(--ink);
+}
+.ws-page {
+  position: absolute;
+  left: 232px;
+  top: 146px;
+  width: 600px;
+  height: 440px;
+  background: var(--white);
+  box-shadow: 6px 8px 0 rgba(0, 0, 0, 0.3);
+}
+.ws-stage {
+  position: absolute;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #f1eee3 25%, transparent 25%, transparent 75%, #f1eee3 75%),
+    linear-gradient(45deg, #f1eee3 25%, transparent 25%, transparent 75%, #f1eee3 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    8px 8px;
+  outline: 1px solid #d8d3c2;
+}
+.ws-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  touch-action: none;
+  cursor: crosshair;
+}
+.ws-canvas.ws-active {
+  display: block;
+}
+.ws-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ws-guides[hidden] {
+  display: none;
+}
+.ws-guide-box {
+  position: absolute;
+  border: 2px dashed #9aa3af;
+}
+.ws-anchor {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: #d4af37;
+  border: 2px solid #7a5c12;
+}
+.ws-anchor-label {
+  position: absolute;
+  padding: 0 6px;
+  background: var(--white);
+  font-size: 15px;
+  line-height: 1.3;
+  color: #4b5563;
+  white-space: nowrap;
+}
+.ws-arrow {
+  position: absolute;
+  width: 46px;
+  height: 24px;
+  margin: -12px 0 0 0;
+  fill: none;
+  stroke: #6b7280;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ws-guides-toggle {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 0;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  font-family: var(--font-type);
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ws-guides-toggle[aria-pressed='true']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: var(--ink);
+}
+.ws-guides-toggle[aria-pressed='false']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ink);
+}
+.ws-tape {
+  position: absolute;
+  width: 84px;
+  height: 26px;
+  background: rgba(244, 228, 170, 0.92);
+  transform: rotate(32deg);
+  pointer-events: none;
+}
+.ws-hint {
+  position: absolute;
+  left: 232px;
+  top: 604px;
+  max-width: 560px;
+}
+.ws-persist {
+  position: absolute;
+  left: 232px;
+  top: 656px;
+  width: 400px;
+}
+
+/* ---------- right column ---------- */
+.ws-right {
+  position: absolute;
+  left: 864px;
+  top: 106px;
+  width: 376px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.ws-preview {
+  position: relative;
+  width: 376px;
+  height: 226px;
+  border: 5px solid var(--white);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  background-color: #7cc4f0;
+  background-size: cover;
+  background-position: center;
+}
+.ws-preview canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 366px;
+  height: 216px;
+  display: block;
+}
+.ws-preview-ledge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34px;
+  border-top: 3px solid var(--white);
+  background-color: #b99a6b;
+  background-size: cover;
+  background-position: center;
+}
+.ws-right .tt-field {
+  align-items: stretch;
+  margin-top: 4px;
+}
+.ws-right .tt-input {
+  width: 100%;
+  font-size: 22px;
+}
+.ws-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+}
+.ws-actions .tt-btn-primary {
+  flex: 1;
+  --fs: 21px;
+  --rot: -1deg;
+}
+.ws-msg {
+  min-height: 24px;
+  font-size: 15px;
+  line-height: 1.3;
+}
+.ws-msg span {
+  display: inline-block;
+  padding: 1px 8px;
+  background: var(--paper);
+}
+.ws-drawer {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 118px;
+  overflow-y: auto;
+  padding: 4px 4px 4px 0;
+}
+.ws-chip {
+  position: relative;
+  height: 54px;
+  padding: 0;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  font-family: var(--font-type);
+  color: var(--ink);
+  touch-action: manipulation;
+}
+.ws-chip img {
+  display: block;
+  width: 100%;
+  height: 34px;
+  object-fit: contain;
+  padding: 2px 2px 0;
+}
+.ws-chip span {
+  display: block;
+  width: 100%;
+  padding: 0 2px;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-chip[aria-pressed='true'] {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px var(--ink);
+}
