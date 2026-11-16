@@ -300,8 +300,9 @@
   background: repeating-linear-gradient(90deg, var(--blue) 0 4px, #6d8de0 4px 8px);
 }
 
-/* Whose turn: a colour-coded role tag, a swatch of the player's mark colour, and a taped, lifted plate for the
-   player acting now (the other plate is dimmed). --mark is set per plate by the HUD. */
+/* Whose turn: a colour-coded role tag, a swatch of the player's mark colour, and a lifted plate for the
+   player acting now (the other plate is dimmed). --mark is set per plate by the HUD. The tape strip is an
+   invisible spacer that keeps both plates the same height. */
 .tt-plate {
   --mark: var(--yellow);
   transition:
@@ -313,11 +314,6 @@
   height: 10px;
   background: transparent;
   clip-path: polygon(0% 12%, 3% 0%, 97% 8%, 100% 0%, 99% 92%, 96% 100%, 4% 90%, 0% 100%);
-}
-.tt-plate[data-turn='attacking'] .tt-plate-tape,
-.tt-plate[data-turn='parrying'] .tt-plate-tape {
-  background: var(--mark);
-  box-shadow: 0 0 0 2px var(--ink);
 }
 .tt-plate[data-turn='attacking'],
 .tt-plate[data-turn='parrying'] {
