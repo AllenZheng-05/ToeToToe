@@ -20,14 +20,14 @@ Agents: **B** builder (sonnet), **H** helper (haiku), **R** reviewer (opus), **O
 - [x] 1.3 B: `DuelSession`, in-memory loopback, bot, two-session tests on a fake clock (after 1.1)
 - [x] 1.4 B: app shell, plain-shapes Pixi stage drawing a `DuelView`, bars, debug overlay, bot match end to end (after 1.2, 1.3)
 - [x] 1.5 R: review of core and session; fixes
-- [~] 1.6 B: Playwright smoke: a bot match runs to a victory with no console errors
+- [x] 1.6 B: Playwright smoke: a bot match runs to a victory with no console errors
 
 ## Milestone 2: two players
 
 - [x] 2.1 B: BroadcastChannel loopback transport, room codes, `room.ts` handshake and clock sync, protocol tests
 - [x] 2.2 B: Trystero peer transport (strategy as config), room full, leaving
-- [ ] 2.3 B: lobby flow (create, join, waiting, ready, start, rematch, friend left)
-- [ ] 2.4 B: Playwright two-window check playing a full act
+- [~] 2.3 B: lobby flow (create, join, waiting, ready, start, rematch, friend left)
+- [~] 2.4 B: Playwright two-window check playing a full act
 - [ ] 2.5 R: review
 
 ## Milestone 3: the final design
