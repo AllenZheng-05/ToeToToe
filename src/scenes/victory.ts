@@ -1,4 +1,5 @@
 import type { App } from '../app/app';
+import type { DuelSession } from '../core/session';
 import type { PlayerId } from '../core/types';
 import { DuelScene } from './duel';
 import { TitleScene } from './title';
@@ -12,10 +13,13 @@ export class VictoryScene implements Scene {
     private readonly setup: MatchSetup,
     private readonly actWins: readonly [number, number],
     private readonly winner: PlayerId,
+    /** The finished session, kept readable (e.g. by debug tools) while the victory screen is up. */
+    private readonly session: DuelSession | null = null,
   ) {}
 
   enter(): void {
     const { setup, actWins, winner } = this;
+    if (this.session) this.app.session = this.session;
     const root = document.createElement('div');
     root.className = 'scene victory';
     root.dataset.testid = 'victory';
@@ -71,6 +75,7 @@ export class VictoryScene implements Scene {
   }
 
   exit(): void {
+    if (this.session && this.app.session === this.session) this.app.session = null;
     this.root?.remove();
     this.root = null;
   }

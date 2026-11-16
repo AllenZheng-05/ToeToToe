@@ -134,7 +134,7 @@ export class DuelScene implements Scene {
         break;
       case 'matchOver':
         this.over = true;
-        void this.app.go(new VictoryScene(this.app, this.setup, session.state.actWins, e.winner));
+        void this.app.go(new VictoryScene(this.app, this.setup, session.state.actWins, e.winner, session));
         break;
       default:
         break;
