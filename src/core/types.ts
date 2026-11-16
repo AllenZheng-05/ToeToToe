@@ -192,6 +192,8 @@ export type Message =
   | { t: 'theme'; theme: ThemeOffer }
   | { t: 'themeReady'; hash: string | null; ok: boolean }
   | { t: 'ready'; ready: boolean }
+  /** Host to guest before `start`, and again whenever the host edits a tunable. The guest adopts them. */
+  | { t: 'tunables'; tunables: Tunables }
   | { t: 'ping'; id: number; t0: number }
   | { t: 'pong'; id: number; t0: number; t1: number }
   /** `startTime` is on the sender's (host's) clock; the guest converts with its measured offset. */
