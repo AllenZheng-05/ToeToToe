@@ -117,17 +117,6 @@ export function createPreview(canvas: HTMLCanvasElement): PreviewHandle {
       for (const seg of pose.segments) drawPart(baked.sock, seg);
       drawPart(baked.sword, pose.sword);
       drawPart(baked.head, pose.head);
-      ctx.save();
-      ctx.fillStyle = '#D4AF37';
-      ctx.strokeStyle = '#7A5C12';
-      ctx.lineWidth = 1.5 * SUPERSAMPLE;
-      for (const pin of pose.pins) {
-        ctx.beginPath();
-        ctx.arc(pin.x * K * SUPERSAMPLE, pin.y * K * SUPERSAMPLE, 5 * SUPERSAMPLE, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-      ctx.restore();
     },
   };
 }

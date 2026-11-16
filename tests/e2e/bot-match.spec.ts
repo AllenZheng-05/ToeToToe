@@ -158,18 +158,42 @@ test('the bot set-up screen: theme, puppets and difficulty reach the match, surv
   expect(await setupState(page)).toEqual({ difficulty: 'hard', bot: 'preset-blue' });
 });
 
-test('Surprise me is settled once per visit and shown on the stage', async ({ page }) => {
+test('Surprise me hides the bot puppet behind a mystery card and is rolled at Start', async ({ page }) => {
+  await page.goto('/?debug=1&bpm=120&res=1');
+  await page.getByTestId('play-bot').click();
+  await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
+  const card = page.getByTestId('bot-mystery');
+  await expect(card).toBeHidden();
+  await page.getByTestId('bot-puppet-surprise').click();
+  await expect(page.getByTestId('bot-puppet-surprise')).toHaveAttribute('aria-pressed', 'true');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('?');
+  await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-bot-puppet', 'surprise');
+  expect(await page.evaluate(() => window.__ttt?.botPuppetId ?? null)).toBeNull();
+  await page.getByTestId('debug-toggle').click();
+  await page.mouse.move(640, 450);
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'test-results/screens/bot-setup-surprise.png' });
+  // A named preset takes the card away.
+  await page.getByTestId('bot-puppet-blue').click();
+  await expect(card).toBeHidden();
+  await page.getByTestId('bot-puppet-surprise').click();
+  await expect(card).toBeVisible();
+  await page.getByTestId('bot-start').click();
+  await expect(page.getByTestId('banner')).toBeVisible();
+  expect(await page.evaluate(() => window.__ttt?.botPuppetId)).toMatch(/^preset-/);
+  expect(await setupState(page)).toEqual({ difficulty: 'medium', bot: 'surprise' });
+});
+
+test('the Surprise me card fits a phone-sized screen', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 });
   await page.goto('/?debug=1&bpm=120&res=1');
   await page.getByTestId('play-bot').click();
   await expect(page.getByTestId('bot-setup')).toHaveAttribute('data-puppets', 'ready');
   await page.getByTestId('bot-puppet-surprise').click();
-  await expect(page.getByTestId('bot-puppet-surprise')).toHaveAttribute('aria-pressed', 'true');
-  const shown = await page.getByTestId('bot-setup').getAttribute('data-bot-puppet');
-  expect(shown).toMatch(/^preset-/);
-  await page.getByTestId('bot-start').click();
-  await expect(page.getByTestId('banner')).toBeVisible();
-  expect(await page.evaluate(() => window.__ttt?.botPuppetId)).toBe(shown);
-  expect(await setupState(page)).toEqual({ difficulty: 'medium', bot: 'surprise' });
+  await expect(page.getByTestId('bot-mystery')).toBeVisible();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'test-results/screens/bot-setup-surprise-phone.png' });
 });
 
 test('Back to title leaves the set-up screen', async ({ page }) => {

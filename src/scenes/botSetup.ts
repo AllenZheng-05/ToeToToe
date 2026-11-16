@@ -2,7 +2,7 @@ import type { App } from '../app/app';
 import { awaitAudio } from '../app/audioGate';
 import { initialTheme } from '../app/connection';
 import { PRESETS } from '../puppet/presets';
-import { loadPresetImages } from '../stage/art/puppetView';
+import { loadPresetImages, type PuppetImages } from '../stage/art/puppetView';
 import type { LoadedTheme } from '../theme/theme';
 import { button, labelStrip, letterTiles } from '../ui/kit/kit';
 import { menuButton, node, sceneRoot, signContent, tagline } from '../ui/menu';
@@ -37,6 +37,21 @@ export interface BotSetupOptions {
   random?: () => number;
 }
 
+/** The silhouette grey, and a canvas with every opaque pixel of the source filled with it. */
+const SILHOUETTE_GREY = '#8d8f94';
+function flatGrey(src: CanvasImageSource): HTMLCanvasElement {
+  const { width, height } = src as HTMLCanvasElement;
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  const g = c.getContext('2d') as CanvasRenderingContext2D;
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-in';
+  g.fillStyle = SILHOUETTE_GREY;
+  g.fillRect(0, 0, width, height);
+  return c;
+}
+
 const PRESET_IDS = PRESETS.map((p) => p.id);
 
 /** "Play against the bot": the battle theme, both puppets and the bot's difficulty, then Start. */
@@ -48,17 +63,14 @@ export class BotSetupScene implements Scene {
   private theme: LoadedTheme | null = null;
   private themeFailed = false;
   private playerPresetId: string | null = null;
-  /** Surprise me is rolled once per visit, so the stage shows the puppet that will play. */
-  private readonly roll: number;
   private botToken = 0;
+  private grey: Promise<PuppetImages> | null = null;
   private draw: () => void = () => {};
 
   constructor(
     private readonly app: App,
     private readonly opts: BotSetupOptions = {},
-  ) {
-    this.roll = (opts.random ?? Math.random)();
-  }
+  ) {}
 
   enter(): void {
     const { app } = this;
@@ -149,6 +161,12 @@ export class BotSetupScene implements Scene {
       levels.set(d, b);
     }
 
+    // Surprise me: the bot's puppet is a flat grey silhouette (drawn on the stage) with a question mark on it.
+    const mystery = node('div', 'bs-mystery', root, 'bot-mystery');
+    mystery.setAttribute('role', 'img');
+    mystery.setAttribute('aria-label', 'A mystery puppet, picked when the match starts');
+    node('span', 'bs-mystery-mark', mystery, undefined, '?').setAttribute('aria-hidden', 'true');
+
     // The ledge.
     const row = node('div', 'ledge-row ledge-bot-setup', root);
     const start = menuButton('Start', 'bot-start', 'primary', () => void this.start(), 'main');
@@ -168,9 +186,11 @@ export class BotSetupScene implements Scene {
           : 'Loading…';
       start.disabled = this.theme === null && !this.themeFailed;
       // The marked swatch is the preset the bot will wear; with Surprise me, only that button is marked.
-      const resolved = this.resolve();
-      for (const [id, b] of choices) mark(b, setup.botPuppet !== SURPRISE && id === resolved);
-      mark(surprise, setup.botPuppet === SURPRISE);
+      const mysterious = setup.botPuppet === SURPRISE;
+      const resolved = mysterious ? SURPRISE : this.resolve();
+      for (const [id, b] of choices) mark(b, !mysterious && id === resolved);
+      mark(surprise, mysterious);
+      mystery.hidden = !mysterious;
       for (const [d, b] of levels) mark(b, d === setup.difficulty);
       root.dataset.difficulty = setup.difficulty;
       root.dataset.botPuppet = resolved;
@@ -215,9 +235,9 @@ export class BotSetupScene implements Scene {
     this.root = null;
   }
 
-  /** The preset the bot wears now: the setting, with Surprise me settled by this visit's roll. */
-  private resolve(): string {
-    return resolveBotPuppet(this.app.botSetup, PRESET_IDS, this.playerPresetId, () => this.roll);
+  /** The preset the bot wears: the setting; Surprise me is rolled afresh each time this is asked for a match. */
+  private resolve(random: () => number = Math.random): string {
+    return resolveBotPuppet(this.app.botSetup, PRESET_IDS, this.playerPresetId, random);
   }
 
   private chooseBot(choice: string): void {
@@ -228,6 +248,17 @@ export class BotSetupScene implements Scene {
 
   private async showBot(): Promise<void> {
     const token = ++this.botToken;
+    if (this.app.botSetup.botPuppet === SURPRISE) {
+      // One neutral silhouette for every preset: nothing about it gives the bot's puppet away.
+      try {
+        const grey = await this.silhouette();
+        if (this.exited || token !== this.botToken) return;
+        this.puppets?.setImages(1, grey);
+      } catch {
+        this.puppets?.setImages(1, null);
+      }
+      return;
+    }
     const preset = PRESETS.find((p) => p.id === this.resolve());
     if (!preset) return;
     try {
@@ -239,6 +270,17 @@ export class BotSetupScene implements Scene {
     }
   }
 
+  /** The first preset's three parts flattened to one grey, baked once per visit. */
+  private async silhouette(): Promise<PuppetImages> {
+    this.grey ??= (async () => {
+      const first = PRESETS[0];
+      if (!first) throw new Error('no presets');
+      const src = await loadPresetImages(first);
+      return { head: flatGrey(src.head), sock: flatGrey(src.sock), sword: flatGrey(src.sword) };
+    })();
+    return this.grey;
+  }
+
   private async start(): Promise<void> {
     if (this.starting) return;
     this.starting = true;
@@ -246,7 +288,7 @@ export class BotSetupScene implements Scene {
     await awaitAudio(this.app);
     await startBotMatch(this.app, {
       theme: this.theme ?? undefined,
-      botPuppetId: this.resolve(),
+      botPuppetId: this.resolve(this.opts.random),
       random: this.opts.random,
     });
   }

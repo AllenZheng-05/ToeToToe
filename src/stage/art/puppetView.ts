@@ -15,10 +15,6 @@ const PART_CUTOUT = { outline: 2, shadowX: 4, shadowY: 5, shadowAlpha: 0.28 } as
 /** Texture pixels per design pixel for puppet parts. */
 const RESOLUTION = 2;
 
-const PIN_FILL = '#D4AF37';
-const PIN_EDGE = '#7A5C12';
-const PIN_RADIUS = 7;
-
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -130,23 +126,6 @@ function destroyArt(art: PartArt | null): void {
   art?.face.destroy(true);
 }
 
-function bakePinTexture(): Texture {
-  const size = (PIN_RADIUS + 2) * 2;
-  const c = document.createElement('canvas');
-  c.width = size * RESOLUTION;
-  c.height = size * RESOLUTION;
-  const g = c.getContext('2d') as CanvasRenderingContext2D;
-  g.scale(RESOLUTION, RESOLUTION);
-  g.beginPath();
-  g.arc(size / 2, size / 2, PIN_RADIUS, 0, Math.PI * 2);
-  g.fillStyle = PIN_FILL;
-  g.fill();
-  g.lineWidth = 2;
-  g.strokeStyle = PIN_EDGE;
-  g.stroke();
-  return canvasTexture(c, RESOLUTION);
-}
-
 function place(sprite: Sprite, p: Placement): void {
   sprite.position.set(p.x, p.y);
   sprite.rotation = p.rotation;
@@ -177,9 +156,8 @@ class PartSprites {
 
 /**
  * A puppet drawn from baked cutout textures of its three parts. `setPose` applies a RigPose from
- * solveRig: segment sprites are pooled and added or removed as the count changes; brass pins are
- * drawn at the joints. Layers, bottom to top: every part's shadow, every part's white edge, every
- * part's face (segments, sword, head in each), then the pins. Stacking by layer rather than by
+ * solveRig: segment sprites are pooled and added or removed as the count changes; the joints are not marked. Layers, bottom to top: every part's shadow, every part's white edge, every
+ * part's face (segments, sword, head in each). Stacking by layer rather than by
  * part makes the edge and shadow wrap the whole puppet instead of each part.
  */
 export class PuppetView {
@@ -188,21 +166,17 @@ export class PuppetView {
   private readonly shadowLayer = new Container();
   private readonly edgeLayer = new Container();
   private readonly faceLayer = new Container();
-  private readonly pinLayer = new Container();
   private readonly sword = new PartSprites();
   private readonly head = new PartSprites();
-  private readonly pinTexture = bakePinTexture();
   private readonly segmentPool: PartSprites[] = [];
-  private readonly pinPool: Sprite[] = [];
   private sockArt: PartArt | null = null;
   private headArt: PartArt | null = null;
   private swordArt: PartArt | null = null;
   private segmentsShown = 0;
-  private pinsShown = 0;
 
   constructor(images: PuppetImages, facing: 1 | -1) {
     this.facing = facing;
-    this.container.addChild(this.shadowLayer, this.edgeLayer, this.faceLayer, this.pinLayer);
+    this.container.addChild(this.shadowLayer, this.edgeLayer, this.faceLayer);
     // The sword and head go on top of the body segments in every layer.
     for (const [layer, key] of [
       [this.shadowLayer, 'shadow'],
@@ -268,35 +242,16 @@ export class PuppetView {
 
     this.sword.place(pose.sword);
     this.head.place(pose.head);
-
-    while (this.pinPool.length < pose.pins.length) {
-      const s = new Sprite(this.pinTexture);
-      s.anchor.set(0.5);
-      this.pinPool.push(s);
-    }
-    while (this.pinsShown < pose.pins.length) {
-      this.pinLayer.addChild(this.pinPool[this.pinsShown] as Sprite);
-      this.pinsShown++;
-    }
-    while (this.pinsShown > pose.pins.length) {
-      this.pinsShown--;
-      this.pinLayer.removeChild(this.pinPool[this.pinsShown] as Sprite);
-    }
-    pose.pins.forEach((p, i) => (this.pinPool[i] as Sprite).position.set(p.x, p.y));
   }
-
   destroy(): void {
     this.container.destroy({ children: true });
     // Pooled sprites that are currently removed from the tree are not reached by the call above.
     for (const s of this.segmentPool) s.destroy();
-    for (const s of this.pinPool) if (!s.destroyed) s.destroy();
     this.sword.destroy();
     this.head.destroy();
     destroyArt(this.sockArt);
     destroyArt(this.headArt);
     destroyArt(this.swordArt);
-    this.pinTexture.destroy(true);
     this.segmentPool.length = 0;
-    this.pinPool.length = 0;
   }
 }
